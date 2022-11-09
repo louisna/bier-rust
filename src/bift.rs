@@ -1,7 +1,7 @@
-use std::{net::IpAddr, num::ParseIntError, str::FromStr};
-use serde::{Deserialize, de, Deserializer};
+use serde::{de, Deserialize, Deserializer};
 use serde_json::Value;
 use serde_repr::Deserialize_repr;
+use std::{net::IpAddr, num::ParseIntError, str::FromStr};
 
 #[derive(Deserialize, Debug)]
 pub struct BierState {
@@ -38,14 +38,16 @@ pub struct Bitmask {
 
 impl<'de> Deserialize<'de> for Bitmask {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de> {
-            println!("TENTE ICI");
-            let s = String::deserialize(deserializer)?;
-            println!("This is the string: {}", &s);
-            let s = FromStr::from_str(&s).map_err(de::Error::custom);
-            println!("This is the result: {:?}", s);
-            s
-        }
+    where
+        D: Deserializer<'de>,
+    {
+        println!("TENTE ICI");
+        let s = String::deserialize(deserializer)?;
+        println!("This is the string: {}", &s);
+        let s = FromStr::from_str(&s).map_err(de::Error::custom);
+        println!("This is the result: {:?}", s);
+        s
+    }
 }
 
 impl FromStr for Bitmask {
@@ -55,19 +57,19 @@ impl FromStr for Bitmask {
         let len_of_64_bits = (str_bitmask.len() as f64 / 8.0).ceil() as usize;
 
         match (0..len_of_64_bits)
-        .map(|i| {
-            let lower_bound = match str_bitmask.len().checked_sub(64 * (i + 1)) {
-                Some(v) => v,
-                None => 0,
-            };
-            let upper_bound = usize::min(lower_bound + 64, str_bitmask.len());
-            let substr =
-                &str_bitmask[lower_bound..upper_bound];
-            println!("This is the substr: {}", substr);
-            u64::from_str_radix(substr, 2)
-        })
-        .collect() {
-            Ok(v) => Ok(Bitmask { bitmask: v}),
+            .map(|i| {
+                let lower_bound = match str_bitmask.len().checked_sub(64 * (i + 1)) {
+                    Some(v) => v,
+                    None => 0,
+                };
+                let upper_bound = usize::min(lower_bound + 64, str_bitmask.len());
+                let substr = &str_bitmask[lower_bound..upper_bound];
+                println!("This is the substr: {}", substr);
+                u64::from_str_radix(substr, 2)
+            })
+            .collect()
+        {
+            Ok(v) => Ok(Bitmask { bitmask: v }),
             Err(e) => Err(format!("Impossible to parse: {:?}", e)),
         }
     }
@@ -82,7 +84,7 @@ pub enum BiftType {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{Value, from_reader, from_value};
+    use serde_json::{from_reader, from_value, Value};
 
     use super::{BierState, BiftType};
     use std::net::{IpAddr, Ipv6Addr};
@@ -157,53 +159,73 @@ mod tests {
 
         assert_eq!(bier_state.loopback, IpAddr::V6("fc00::a".parse().unwrap()));
         assert_eq!(bier_state.bifts.len(), 1);
-        
+
         let bift = bier_state.bifts.get(0).unwrap();
         assert_eq!(bift.bfr_id, 1);
         assert_eq!(bift.bift_type, BiftType::Bier);
         assert_eq!(bift.bfr_id, 1);
         assert_eq!(bift.entries.len(), 5);
-        
+
         // Entry 1.
         assert_eq!(bift.entries[0].bit, 1);
         assert_eq!(bift.entries[0].paths.len(), 1);
         assert_eq!(bift.entries[0].paths[0].bitmask.bitmask.len(), 1);
         assert_eq!(bift.entries[0].paths[0].bitmask.bitmask[0], 1);
-        assert_eq!(bift.entries[0].paths[0].next_hop, IpAddr::V6("fc00:a::1".parse().unwrap()));
+        assert_eq!(
+            bift.entries[0].paths[0].next_hop,
+            IpAddr::V6("fc00:a::1".parse().unwrap())
+        );
 
         // Entry 2.
         assert_eq!(bift.entries[1].bit, 2);
         assert_eq!(bift.entries[1].paths.len(), 1);
         assert_eq!(bift.entries[1].paths[0].bitmask.bitmask.len(), 1);
         assert_eq!(bift.entries[1].paths[0].bitmask.bitmask[0], 26);
-        assert_eq!(bift.entries[1].paths[0].next_hop, IpAddr::V6("fc00:b::1".parse().unwrap()));
+        assert_eq!(
+            bift.entries[1].paths[0].next_hop,
+            IpAddr::V6("fc00:b::1".parse().unwrap())
+        );
 
         // Entry 3.
         assert_eq!(bift.entries[2].bit, 3);
         assert_eq!(bift.entries[2].paths.len(), 1);
         assert_eq!(bift.entries[2].paths[0].bitmask.bitmask.len(), 1);
         assert_eq!(bift.entries[2].paths[0].bitmask.bitmask[0], 28);
-        assert_eq!(bift.entries[2].paths[0].next_hop, IpAddr::V6("fc00:c::1".parse().unwrap()));
+        assert_eq!(
+            bift.entries[2].paths[0].next_hop,
+            IpAddr::V6("fc00:c::1".parse().unwrap())
+        );
 
         // Entry 4.
         assert_eq!(bift.entries[3].bit, 4);
         assert_eq!(bift.entries[3].paths.len(), 2);
         assert_eq!(bift.entries[3].paths[0].bitmask.bitmask.len(), 1);
         assert_eq!(bift.entries[3].paths[0].bitmask.bitmask[0], 26);
-        assert_eq!(bift.entries[3].paths[0].next_hop, IpAddr::V6("fc00:b::1".parse().unwrap()));
+        assert_eq!(
+            bift.entries[3].paths[0].next_hop,
+            IpAddr::V6("fc00:b::1".parse().unwrap())
+        );
         assert_eq!(bift.entries[3].paths[1].bitmask.bitmask.len(), 1);
         assert_eq!(bift.entries[3].paths[1].bitmask.bitmask[0], 28);
-        assert_eq!(bift.entries[3].paths[1].next_hop, IpAddr::V6("fc00:c::1".parse().unwrap()));
+        assert_eq!(
+            bift.entries[3].paths[1].next_hop,
+            IpAddr::V6("fc00:c::1".parse().unwrap())
+        );
 
         // Entry 5.
         assert_eq!(bift.entries[4].bit, 5);
         assert_eq!(bift.entries[4].paths.len(), 2);
         assert_eq!(bift.entries[4].paths[0].bitmask.bitmask.len(), 1);
         assert_eq!(bift.entries[4].paths[0].bitmask.bitmask[0], 26);
-        assert_eq!(bift.entries[4].paths[0].next_hop, IpAddr::V6("fc00:b::1".parse().unwrap()));
+        assert_eq!(
+            bift.entries[4].paths[0].next_hop,
+            IpAddr::V6("fc00:b::1".parse().unwrap())
+        );
         assert_eq!(bift.entries[4].paths[1].bitmask.bitmask.len(), 1);
         assert_eq!(bift.entries[4].paths[1].bitmask.bitmask[0], 28);
-        assert_eq!(bift.entries[4].paths[1].next_hop, IpAddr::V6("fc00:c::1".parse().unwrap()));
-
+        assert_eq!(
+            bift.entries[4].paths[1].next_hop,
+            IpAddr::V6("fc00:c::1".parse().unwrap())
+        );
     }
 }
