@@ -66,17 +66,17 @@ impl<'de> Deserialize<'de> for Bitstring {
 impl FromStr for Bitstring {
     type Err = String;
 
-    fn from_str(str_Bitstring: &str) -> Result<Self, Self::Err> {
-        let len_of_64_bits = (str_Bitstring.len() as f64 / 8.0).ceil() as usize;
+    fn from_str(str_bitstring: &str) -> Result<Self, Self::Err> {
+        let len_of_64_bits = (str_bitstring.len() as f64 / 8.0).ceil() as usize;
 
         match (0..len_of_64_bits)
             .map(|i| {
-                let lower_bound = match str_Bitstring.len().checked_sub(64 * (i + 1)) {
+                let lower_bound = match str_bitstring.len().checked_sub(64 * (i + 1)) {
                     Some(v) => v,
                     None => 0,
                 };
-                let upper_bound = usize::min(lower_bound + 64, str_Bitstring.len());
-                let substr = &str_Bitstring[lower_bound..upper_bound];
+                let upper_bound = usize::min(lower_bound + 64, str_bitstring.len());
+                let substr = &str_bitstring[lower_bound..upper_bound];
                 println!("This is the substr: {}", substr);
                 u64::from_str_radix(substr, 2)
             })
