@@ -121,8 +121,7 @@ impl<'de> Deserialize<'de> for Bitstring {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let s = FromStr::from_str(&s).map_err(de::Error::custom);
-        s
+        FromStr::from_str(&s).map_err(de::Error::custom)
     }
 }
 
