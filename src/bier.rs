@@ -72,6 +72,10 @@ impl BierState {
 
         Ok(out)
     }
+
+    pub fn get_loopback(&self) -> IpAddr {
+        self.loopback
+    }
 }
 
 #[derive(Deserialize, Debug)]

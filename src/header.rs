@@ -1,5 +1,6 @@
 use crate::bier::{Result, Error};
 
+#[allow(dead_code)]
 pub struct BierHeader {
     bift_id: u32,
     tc: u8,
