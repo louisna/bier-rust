@@ -2,15 +2,81 @@ use serde::{de, Deserialize, Deserializer};
 use serde_repr::Deserialize_repr;
 use std::{net::IpAddr, str::FromStr};
 
+pub type BierSendInfo = (Bitstring, Option<IpAddr>);
+
 #[derive(Deserialize, Debug)]
 pub struct BierState {
     loopback: IpAddr,
     bifts: Vec<Bift>,
 }
 
+impl BierState {
+    pub fn process_bier(
+        &self,
+        original_bitstring: &Bitstring,
+        bift_id: usize,
+    ) -> Result<Vec<BierSendInfo>> {
+        // Make a copy that will be edited during the processing.
+        let mut bitstring = original_bitstring.clone();
+
+        let mut out = Vec::new();
+        let bift = self.bifts.get(bift_id - 1).ok_or(Error::BiftId)?;
+        // TODO: is the vector correctly indexed?
+        assert_eq!(bift.bift_id, bift_id);
+
+        // TODO: currently only supports BIER (RFC8279).
+        assert_eq!(bift.bift_type, BiftType::Bier);
+
+        let bitstring_number_u64 = bitstring.bitstring.len();
+        let mut bfr_idx = 0;
+
+        // Iterate over all u64 words.
+        for idx_u64_word in 0..bitstring_number_u64 {
+            let mut bitstring_word = bitstring.bitstring[bitstring_number_u64 - 1 - idx_u64_word];
+
+            // Iterate over all bits of the word.
+            while bitstring_word > 0 {
+                // The `bfr_idx` BFR has its bit set to 1. Process.
+                if ((bitstring_word >> (bfr_idx % 64)) & 1) == 1 {
+                    // Bitstring for this packet duplication.
+                    let mut dst_bitstring = bitstring.clone();
+                    let bift_entry = bift.entries.get(bfr_idx).ok_or(Error::NoEntry)?;
+                    // TODO: is the vector correctly indexed?
+                    assert_eq!(bift_entry.bit - 1, bfr_idx as u64);
+
+                    // Get the first path always.
+                    let bier_entry_path = bift_entry.paths.get(0).ok_or(Error::NoEntry)?;
+
+                    // Update the bitstring with the bitmask of the corresponding entry.
+                    dst_bitstring.update(&bier_entry_path.bitstring, BitstringOp::And);
+
+                    // Add new destination.
+                    // `None` if the packet must be sent to the local BFER.
+                    let nxt_hop_ip = if bfr_idx as u64 == bift.bfr_id - 1 {
+                        None
+                    } else {
+                        Some(bier_entry_path.next_hop)
+                    };
+                    out.push((dst_bitstring, nxt_hop_ip));
+
+                    // Update global bitstring.
+                    bitstring.update(&bier_entry_path.bitstring, BitstringOp::AndNot);
+
+                    // Update the iterated bitstring word in case we cleaned some bits.
+                    bitstring_word = bitstring.bitstring[bitstring_number_u64 - 1 - idx_u64_word];
+                }
+                // Next BFR.
+                bfr_idx += 1;
+            }
+        }
+
+        Ok(out)
+    }
+}
+
 #[derive(Deserialize, Debug)]
 pub struct Bift {
-    bift_id: u32,
+    bift_id: usize,
     bift_type: BiftType,
     bfr_id: u64,
     entries: Vec<BiftEntry>,
@@ -30,7 +96,7 @@ struct BierEntryPath {
     next_hop: IpAddr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bitstring {
     bitstring: Vec<u64>,
 }
@@ -50,15 +116,12 @@ impl Bitstring {
 }
 
 impl<'de> Deserialize<'de> for Bitstring {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        println!("TENTE ICI");
         let s = String::deserialize(deserializer)?;
-        println!("This is the string: {}", &s);
         let s = FromStr::from_str(&s).map_err(de::Error::custom);
-        println!("This is the result: {:?}", s);
         s
     }
 }
@@ -66,18 +129,14 @@ impl<'de> Deserialize<'de> for Bitstring {
 impl FromStr for Bitstring {
     type Err = String;
 
-    fn from_str(str_bitstring: &str) -> Result<Self, Self::Err> {
+    fn from_str(str_bitstring: &str) -> std::result::Result<Self, Self::Err> {
         let len_of_64_bits = (str_bitstring.len() as f64 / 8.0).ceil() as usize;
 
         match (0..len_of_64_bits)
             .map(|i| {
-                let lower_bound = match str_bitstring.len().checked_sub(64 * (i + 1)) {
-                    Some(v) => v,
-                    None => 0,
-                };
+                let lower_bound = str_bitstring.len().saturating_sub(64 * (i + 1));
                 let upper_bound = usize::min(lower_bound + 64, str_bitstring.len());
                 let substr = &str_bitstring[lower_bound..upper_bound];
-                println!("This is the substr: {}", substr);
                 u64::from_str_radix(substr, 2)
             })
             .collect()
@@ -88,7 +147,7 @@ impl FromStr for Bitstring {
     }
 }
 
-#[derive(Deserialize_repr, PartialEq, Debug)]
+#[derive(Deserialize_repr, PartialEq, Eq, Debug)]
 #[repr(u32)]
 pub enum BiftType {
     Bier = 1,
@@ -98,6 +157,25 @@ pub enum BiftType {
 pub enum BitstringOp {
     And = 1,
     AndNot = 2,
+}
+
+/// Custom result used for Bier processing.
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// A BIER error.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Error {
+    /// Impossible to parse the Bier header.
+    Header,
+
+    /// Invalid BIFT-ID.
+    BiftId,
+
+    /// Impossible to parse the BIFTs.
+    BiftParsing,
+
+    /// No entry in the BIFT.
+    NoEntry,
 }
 
 #[cfg(test)]
@@ -174,6 +252,7 @@ mod tests {
     }
 
     #[test]
+    /// Tests the JSON deserialize of a BIFT.
     fn test_deserialize() {
         let txt = get_dummy_config_json();
         let bier_state: BierState = serde_json::from_str(txt).unwrap();
@@ -251,15 +330,70 @@ mod tests {
     }
 
     #[test]
+    /// Tests the update of a bitstring.
     fn test_update_bitstring() {
         let bitstring = Bitstring::from_str("1101");
         assert!(bitstring.is_ok());
         let mut bitstring = bitstring.unwrap();
-        
+
         bitstring.update(&Bitstring::from_str("1011").unwrap(), BitstringOp::And);
         assert_eq!(bitstring.bitstring[0], 0b1001);
 
         bitstring.update(&Bitstring::from_str("0011").unwrap(), BitstringOp::AndNot);
         assert_eq!(bitstring.bitstring[0], 0b1000);
+    }
+
+    #[test]
+    /// Tests the BIER processing of a bitstring using the dummy BIFT.
+    fn test_bier_processing() {
+        let txt = get_dummy_config_json();
+        let bier_state: BierState = serde_json::from_str(txt).unwrap();
+
+        let bitstring = Bitstring::from_str("11111");
+        assert!(bitstring.is_ok());
+        let bitstring = bitstring.unwrap();
+        // TODO: test also with invalid bitstring length (e.g., longer).
+
+        let outputs = bier_state.process_bier(&bitstring, 1);
+        assert!(outputs.is_ok());
+        let outputs = outputs.unwrap();
+
+        // Considering the example BIFT and the full-set bitstring, we should have three different paths.
+        assert_eq!(outputs.len(), 3);
+
+        let expected = [
+            (Bitstring::from_str("1").unwrap(), None), // Local bitstring.
+            (Bitstring::from_str("11010").unwrap(), Some(IpAddr::V6("fc00:b::1".parse().unwrap()))), // Going to node B.
+            (Bitstring::from_str("100").unwrap(), Some(IpAddr::V6("fc00:c::1".parse().unwrap()))), // going to node C.
+        ];
+
+        let res = expected.iter().map(|out| outputs.contains(out)).all(|v| v);
+        assert!(res);
+    }
+
+    #[test]
+    /// Tests the BIER processing of a bitstring using the dummy BIFT.
+    fn test_bier_processing_2() {
+        let txt = get_dummy_config_json();
+        let bier_state: BierState = serde_json::from_str(txt).unwrap();
+
+        let bitstring = Bitstring::from_str("11000");
+        assert!(bitstring.is_ok());
+        let bitstring = bitstring.unwrap();
+        // TODO: test also with invalid bitstring length (e.g., longer).
+
+        let outputs = bier_state.process_bier(&bitstring, 1);
+        assert!(outputs.is_ok());
+        let outputs = outputs.unwrap();
+
+        // Considering the example BIFT and the full-set bitstring, we should have three different paths.
+        assert_eq!(outputs.len(), 1);
+
+        let expected = [
+            (Bitstring::from_str("11000").unwrap(), Some(IpAddr::V6("fc00:b::1".parse().unwrap()))), // Going to node B.
+        ];
+
+        let res = expected.iter().map(|out| outputs.contains(out)).all(|v| v);
+        assert!(res);
     }
 }

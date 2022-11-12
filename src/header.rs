@@ -1,3 +1,5 @@
+use crate::bier::{Result, Error};
+
 pub struct BierHeader {
     bift_id: u32,
     tc: u8,
@@ -14,16 +16,6 @@ pub struct BierHeader {
     bfr_id: u16,
     bitstring: Vec<u64>,
 }
-
-/// A BIER error.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Error {
-    /// Impossible to parse the Bier header.
-    Header,
-}
-
-/// Custom result used for Bier processing.
-pub type Result<T> = std::result::Result<T, Error>;
 
 const BIER_MINIMUM_HEADER_LENGTH: usize = 20;
 const BIER_HEADER_WITHOUT_BITSTRING_LENGTH: usize = 12;
@@ -170,5 +162,25 @@ mod tests {
         assert_eq!(bier_header.bitstring.len(), 1);
         assert_eq!(bier_header.bitstring[0], 0xffff);
 
+    }
+
+    #[test]
+    fn test_bier_header_from_bytes_wrong_bitstring_length() {
+        let buf = [
+            0u8,
+            0,
+            0x43, 
+            7,
+            0x51, 
+            0x20, // BSL of 2
+            0x0, 0x3, 
+            0xf1, 
+            0x4, 
+            0x0, 0x11, 
+            0, 0, 0, 0, 0, 0, 0xff, 0xff, 
+        ];
+
+        let bier_header_opt = BierHeader::from_slice(&buf);
+        assert!(bier_header_opt.is_err());
     }
 }
