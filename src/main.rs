@@ -4,7 +4,7 @@ extern crate log;
 use clap::Parser;
 
 use serde_json::{Value, from_reader, from_value};
-use bier_rust::bift::BierState;
+use bier_rust::bier::BierState;
 
 #[derive(Parser)]
 struct Args {
@@ -20,7 +20,7 @@ fn main() {
     let file = std::fs::File::open("configs/example.json").expect("Cannot find the file");
     let json: Value = from_reader(file).expect("Cannot read the JSON content");
     debug!("JSON value: {:?}", json);
-    let a: bier_rust::bift::Bitstring = "110".parse().unwrap();
+    let a: bier_rust::bier::Bitstring = "110".parse().unwrap();
     let bier_state: BierState = from_value(json).expect("Cannot parse the JSON to BierState");
     println!("This is the bier state: {:?}", bier_state);
 }

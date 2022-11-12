@@ -1,174 +1,265 @@
-pub struct BierHeader {
+use serde::{de, Deserialize, Deserializer};
+use serde_repr::Deserialize_repr;
+use std::{net::IpAddr, str::FromStr};
+
+#[derive(Deserialize, Debug)]
+pub struct BierState {
+    loopback: IpAddr,
+    bifts: Vec<Bift>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Bift {
     bift_id: u32,
-    tc: u8,
-    s: bool,
-    ttl: u8,
-    nibble: u8,
-    ver: u8,
-    bsl: u8,
-    entropy: u32,
-    oam: u8,
-    dscp: u8,
-    rsv: u8,
-    proto: u8,
-    bfr_id: u16,
+    bift_type: BiftType,
+    bfr_id: u64,
+    entries: Vec<BiftEntry>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct BiftEntry {
+    /// Bit representing the router of the entry.
+    bit: u64,
+    /// All (Bitstring, next-hop) pairsfor this bit.
+    paths: Vec<BierEntryPath>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BierEntryPath {
+    bitstring: Bitstring,
+    next_hop: IpAddr,
+}
+
+#[derive(Debug)]
+pub struct Bitstring {
     bitstring: Vec<u64>,
 }
 
-/// A BIER error.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Error {
-    /// Impossible to parse the Bier header.
-    Header,
-}
-
-/// Custom result used for Bier processing.
-pub type Result<T> = std::result::Result<T, Error>;
-
-const BIER_MINIMUM_HEADER_LENGTH: usize = 20;
-const BIER_HEADER_WITHOUT_BITSTRING_LENGTH: usize = 12;
-
-impl BierHeader {
-    pub fn from_slice(slice: &[u8]) -> Result<BierHeader> {
-        if slice.len() < BIER_MINIMUM_HEADER_LENGTH {
-            return Err(Error::Header);
-        }
-
-        let bsl = unsafe { (*slice.get_unchecked(5) & 0xf0) >> 4 };
-
-        let bitstring_length = 1 << (bsl + 5);
-        let bitstring_length = bitstring_length / 8;
-        if slice.len() - bitstring_length != BIER_HEADER_WITHOUT_BITSTRING_LENGTH {
-            return Err(Error::Header);
-        }
-
-        let header = BierHeader {
-            bift_id: get_bift_id(slice),
-            tc: get_tc(slice),
-            s: get_s(slice),
-            ttl: get_ttl(slice),
-            nibble: get_nibble(slice),
-            ver: get_version(slice),
-            bsl: get_bsl(slice),
-            entropy: get_entropy(slice),
-            oam: get_oam(slice),
-            dscp: get_dscp(slice),
-            rsv: get_rsv(slice),
-            proto: get_proto(slice),
-            bfr_id: get_bifr_id(slice),
-            bitstring: get_bitstring(slice),
-        };
-
-        Ok(header)
+impl Bitstring {
+    pub fn update(&mut self, other: &Bitstring, bitop: BitstringOp) {
+        self.bitstring = self
+            .bitstring
+            .iter()
+            .zip(other.bitstring.iter())
+            .map(|(bw_self, bw_other)| match bitop {
+                BitstringOp::And => bw_self & bw_other,
+                BitstringOp::AndNot => bw_self & !bw_other,
+            })
+            .collect();
     }
 }
 
-fn get_bift_id(slice: &[u8]) -> u32 {
-    unsafe { (get_unchecked_be_u32(slice.as_ptr()) & 0xfffff000) >> 12 }
+impl<'de> Deserialize<'de> for Bitstring {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        println!("TENTE ICI");
+        let s = String::deserialize(deserializer)?;
+        println!("This is the string: {}", &s);
+        let s = FromStr::from_str(&s).map_err(de::Error::custom);
+        println!("This is the result: {:?}", s);
+        s
+    }
 }
 
-fn get_tc(slice: &[u8]) -> u8 {
-    unsafe { (slice.get_unchecked(2) & 0x0e) >> 1 }
+impl FromStr for Bitstring {
+    type Err = String;
+
+    fn from_str(str_bitstring: &str) -> Result<Self, Self::Err> {
+        let len_of_64_bits = (str_bitstring.len() as f64 / 8.0).ceil() as usize;
+
+        match (0..len_of_64_bits)
+            .map(|i| {
+                let lower_bound = match str_bitstring.len().checked_sub(64 * (i + 1)) {
+                    Some(v) => v,
+                    None => 0,
+                };
+                let upper_bound = usize::min(lower_bound + 64, str_bitstring.len());
+                let substr = &str_bitstring[lower_bound..upper_bound];
+                println!("This is the substr: {}", substr);
+                u64::from_str_radix(substr, 2)
+            })
+            .collect()
+        {
+            Ok(v) => Ok(Bitstring { bitstring: v }),
+            Err(e) => Err(format!("Impossible to parse: {:?}", e)),
+        }
+    }
 }
 
-fn get_s(slice: &[u8]) -> bool {
-    unsafe { slice.get_unchecked(2) & 1 == 1 }
+#[derive(Deserialize_repr, PartialEq, Debug)]
+#[repr(u32)]
+pub enum BiftType {
+    Bier = 1,
+    BierTe = 2,
 }
 
-fn get_ttl(slice: &[u8]) -> u8 {
-    unsafe { *slice.get_unchecked(3) }
-}
-
-fn get_nibble(slice: &[u8]) -> u8 {
-    unsafe { (*slice.get_unchecked(4) & 0xf0) >> 4 }
-}
-
-fn get_version(slice: &[u8]) -> u8 {
-    unsafe { *slice.get_unchecked(4) & 0xf }
-}
-
-fn get_bsl(slice: &[u8]) -> u8 {
-    unsafe { (*slice.get_unchecked(5) & 0xf0) >> 4 }
-}
-
-fn get_entropy(slice: &[u8]) -> u32 {
-    unsafe { get_unchecked_be_u32(slice.as_ptr().add(4)) & 0xfffff }
-}
-
-fn get_oam(slice: &[u8]) -> u8 {
-    unsafe { (*slice.get_unchecked(8) & 0xc0) >> 6 }
-}
-
-fn get_rsv(slice: &[u8]) -> u8 {
-    unsafe { (*slice.get_unchecked(8) & 0x30) >> 4 }
-}
-
-fn get_dscp(slice: &[u8]) -> u8 {
-    unsafe { ((get_unchecked_be_u16(slice.as_ptr().add(8)) & 0xfc0) >> 6) as u8 }
-}
-
-fn get_proto(slice: &[u8]) -> u8 {
-    unsafe { *slice.get_unchecked(9) & 0x3f }
-}
-
-fn get_bifr_id(slice: &[u8]) -> u16 {
-    unsafe { get_unchecked_be_u16(slice.as_ptr().add(10)) }
-}
-
-fn get_bitstring(slice: &[u8]) -> Vec<u64> {
-    slice[12..]
-        .chunks(8)
-        .map(|chunk| u64::from_be_bytes(chunk.try_into().unwrap()))
-        .collect::<Vec<u64>>()
-}
-
-unsafe fn get_unchecked_be_u16(ptr: *const u8) -> u16 {
-    u16::from_be_bytes([*ptr, *ptr.add(1)])
-}
-
-unsafe fn get_unchecked_be_u32(ptr: *const u8) -> u32 {
-    u32::from_be_bytes([*ptr, *ptr.add(1), *ptr.add(2), *ptr.add(3)])
+pub enum BitstringOp {
+    And = 1,
+    AndNot = 2,
 }
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
-    
+    use std::net::IpAddr;
+
+    fn get_dummy_config_json() -> &'static str {
+        r#"{"loopback": "fc00::a","bifts": [
+                {
+                    "bift_id": 1,
+                    "bift_type": 1,
+                    "bfr_id": 1,
+                    "entries": [
+                        {
+                            "bit": 1,
+                            "paths": [
+                                {
+                                    "bitstring": "1",
+                                    "next_hop": "fc00:a::1"
+                                }
+                            ]
+                        },
+                        {
+                            "bit": 2,
+                            "paths": [
+                                {
+                                    "bitstring": "11010",
+                                    "next_hop": "fc00:b::1"
+                                }
+                            ]
+                        },
+                        {
+                            "bit": 3,
+                            "paths": [
+                                {
+                                    "bitstring": "11100",
+                                    "next_hop": "fc00:c::1"
+                                }
+                            ]
+                        },
+                        {
+                            "bit": 4,
+                            "paths": [
+                                {
+                                    "bitstring": "11010",
+                                    "next_hop": "fc00:b::1"
+                                },
+                                {
+                                    "bitstring": "11100",
+                                    "next_hop": "fc00:c::1"
+                                }
+                            ]
+                        },
+                        {
+                            "bit": 5,
+                            "paths": [
+                                {
+                                    "bitstring": "11010",
+                                    "next_hop": "fc00:b::1"
+                                },
+                                {
+                                    "bitstring": "11100",
+                                    "next_hop": "fc00:c::1"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        "#
+    }
+
     #[test]
-    fn test_bier_header_from_bytes() {
-        let buf = [
-            0u8,
-            0,
-            0x43, // BIFT-ID + TC + S
-            7, // TTL
-            0x51, // Nibble + Version
-            0x10, // BSL + Entropy
-            0x0, 0x3, // Entropy
-            0xf1, // Oam + Rsv + DSCP
-            0x4, // DSCP + Proto
-            0x0, 0x11, // BFR-ID
-            0, 0, 0, 0, 0, 0, 0xff, 0xff, // Bitstring
-        ];
+    fn test_deserialize() {
+        let txt = get_dummy_config_json();
+        let bier_state: BierState = serde_json::from_str(txt).unwrap();
 
-        let bier_header_opt = BierHeader::from_slice(&buf);
-        assert!(bier_header_opt.is_ok());
-        let bier_header = bier_header_opt.unwrap();
+        assert_eq!(bier_state.loopback, IpAddr::V6("fc00::a".parse().unwrap()));
+        assert_eq!(bier_state.bifts.len(), 1);
 
-        assert_eq!(bier_header.bift_id, 4);
-        assert_eq!(bier_header.tc, 1);
-        assert_eq!(bier_header.s, true);
-        assert_eq!(bier_header.ttl, 7);
-        assert_eq!(bier_header.nibble, 5);
-        assert_eq!(bier_header.ver, 1);
-        assert_eq!(bier_header.bsl, 1);
-        assert_eq!(bier_header.entropy, 3);
-        assert_eq!(bier_header.oam, 3);
-        assert_eq!(bier_header.rsv, 3);
-        assert_eq!(bier_header.dscp, 4);
-        assert_eq!(bier_header.proto, 4);
-        assert_eq!(bier_header.bfr_id, 0x11);
-        assert_eq!(bier_header.bitstring.len(), 1);
-        assert_eq!(bier_header.bitstring[0], 0xffff);
+        let bift = bier_state.bifts.get(0).unwrap();
+        assert_eq!(bift.bfr_id, 1);
+        assert_eq!(bift.bift_type, BiftType::Bier);
+        assert_eq!(bift.bfr_id, 1);
+        assert_eq!(bift.entries.len(), 5);
 
+        // Entry 1.
+        assert_eq!(bift.entries[0].bit, 1);
+        assert_eq!(bift.entries[0].paths.len(), 1);
+        assert_eq!(bift.entries[0].paths[0].bitstring.bitstring.len(), 1);
+        assert_eq!(bift.entries[0].paths[0].bitstring.bitstring[0], 1);
+        assert_eq!(
+            bift.entries[0].paths[0].next_hop,
+            IpAddr::V6("fc00:a::1".parse().unwrap())
+        );
+
+        // Entry 2.
+        assert_eq!(bift.entries[1].bit, 2);
+        assert_eq!(bift.entries[1].paths.len(), 1);
+        assert_eq!(bift.entries[1].paths[0].bitstring.bitstring.len(), 1);
+        assert_eq!(bift.entries[1].paths[0].bitstring.bitstring[0], 26);
+        assert_eq!(
+            bift.entries[1].paths[0].next_hop,
+            IpAddr::V6("fc00:b::1".parse().unwrap())
+        );
+
+        // Entry 3.
+        assert_eq!(bift.entries[2].bit, 3);
+        assert_eq!(bift.entries[2].paths.len(), 1);
+        assert_eq!(bift.entries[2].paths[0].bitstring.bitstring.len(), 1);
+        assert_eq!(bift.entries[2].paths[0].bitstring.bitstring[0], 28);
+        assert_eq!(
+            bift.entries[2].paths[0].next_hop,
+            IpAddr::V6("fc00:c::1".parse().unwrap())
+        );
+
+        // Entry 4.
+        assert_eq!(bift.entries[3].bit, 4);
+        assert_eq!(bift.entries[3].paths.len(), 2);
+        assert_eq!(bift.entries[3].paths[0].bitstring.bitstring.len(), 1);
+        assert_eq!(bift.entries[3].paths[0].bitstring.bitstring[0], 26);
+        assert_eq!(
+            bift.entries[3].paths[0].next_hop,
+            IpAddr::V6("fc00:b::1".parse().unwrap())
+        );
+        assert_eq!(bift.entries[3].paths[1].bitstring.bitstring.len(), 1);
+        assert_eq!(bift.entries[3].paths[1].bitstring.bitstring[0], 28);
+        assert_eq!(
+            bift.entries[3].paths[1].next_hop,
+            IpAddr::V6("fc00:c::1".parse().unwrap())
+        );
+
+        // Entry 5.
+        assert_eq!(bift.entries[4].bit, 5);
+        assert_eq!(bift.entries[4].paths.len(), 2);
+        assert_eq!(bift.entries[4].paths[0].bitstring.bitstring.len(), 1);
+        assert_eq!(bift.entries[4].paths[0].bitstring.bitstring[0], 26);
+        assert_eq!(
+            bift.entries[4].paths[0].next_hop,
+            IpAddr::V6("fc00:b::1".parse().unwrap())
+        );
+        assert_eq!(bift.entries[4].paths[1].bitstring.bitstring.len(), 1);
+        assert_eq!(bift.entries[4].paths[1].bitstring.bitstring[0], 28);
+        assert_eq!(
+            bift.entries[4].paths[1].next_hop,
+            IpAddr::V6("fc00:c::1".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn test_update_bitstring() {
+        let bitstring = Bitstring::from_str("1101");
+        assert!(bitstring.is_ok());
+        let mut bitstring = bitstring.unwrap();
+        
+        bitstring.update(&Bitstring::from_str("1011").unwrap(), BitstringOp::And);
+        assert_eq!(bitstring.bitstring[0], 0b1001);
+
+        bitstring.update(&Bitstring::from_str("0011").unwrap(), BitstringOp::AndNot);
+        assert_eq!(bitstring.bitstring[0], 0b1000);
     }
 }
