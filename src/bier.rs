@@ -14,8 +14,10 @@ impl BierState {
     pub fn process_bier(
         &self,
         original_bitstring: &Bitstring,
-        bift_id: usize,
+        bift_id: u32,
     ) -> Result<Vec<BierSendInfo>> {
+        let bift_id = bift_id as usize;
+
         // Make a copy that will be edited during the processing.
         let mut bitstring = original_bitstring.clone();
 
@@ -73,7 +75,7 @@ impl BierState {
         Ok(out)
     }
 
-    // pub fn 
+    // pub fn
 
     pub fn get_loopback(&self) -> IpAddr {
         self.loopback
@@ -119,6 +121,28 @@ impl Bitstring {
             })
             .collect();
     }
+
+    pub fn get_ref(&self) -> &[u64] {
+        &self.bitstring
+    }
+
+    pub fn update_header_from_self(&self, header: &mut [u8]) -> Result<()> {
+        if header.len() < crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len() {
+            return Err(crate::bier::Error::BitstringLength);
+        }
+
+        // Get the bitstring.
+        let bitstring_hdr = &mut header[crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH
+        ..crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len()];
+
+        unsafe {
+            let p = self.bitstring.as_ptr() as *const u8;
+            let slice = std::slice::from_raw_parts(p, self.bitstring.len() * 8);
+            bitstring_hdr.copy_from_slice(slice);
+        }
+        
+        Ok(())
+    }
 }
 
 impl<'de> Deserialize<'de> for Bitstring {
@@ -128,6 +152,12 @@ impl<'de> Deserialize<'de> for Bitstring {
     {
         let s = String::deserialize(deserializer)?;
         FromStr::from_str(&s).map_err(de::Error::custom)
+    }
+}
+
+impl From<Vec<u64>> for Bitstring {
+    fn from(slice: Vec<u64>) -> Self {
+        Bitstring { bitstring: slice }
     }
 }
 
@@ -181,6 +211,9 @@ pub enum Error {
 
     /// No entry in the BIFT.
     NoEntry,
+
+    /// Wrong Bitstring length.
+    BitstringLength,
 }
 
 #[cfg(test)]
@@ -368,8 +401,14 @@ mod tests {
 
         let expected = [
             (Bitstring::from_str("1").unwrap(), None), // Local bitstring.
-            (Bitstring::from_str("11010").unwrap(), Some(IpAddr::V6("fc00:b::1".parse().unwrap()))), // Going to node B.
-            (Bitstring::from_str("100").unwrap(), Some(IpAddr::V6("fc00:c::1".parse().unwrap()))), // going to node C.
+            (
+                Bitstring::from_str("11010").unwrap(),
+                Some(IpAddr::V6("fc00:b::1".parse().unwrap())),
+            ), // Going to node B.
+            (
+                Bitstring::from_str("100").unwrap(),
+                Some(IpAddr::V6("fc00:c::1".parse().unwrap())),
+            ), // going to node C.
         ];
 
         let res = expected.iter().map(|out| outputs.contains(out)).all(|v| v);
@@ -395,7 +434,10 @@ mod tests {
         assert_eq!(outputs.len(), 1);
 
         let expected = [
-            (Bitstring::from_str("11000").unwrap(), Some(IpAddr::V6("fc00:b::1".parse().unwrap()))), // Going to node B.
+            (
+                Bitstring::from_str("11000").unwrap(),
+                Some(IpAddr::V6("fc00:b::1".parse().unwrap())),
+            ), // Going to node B.
         ];
 
         let res = expected.iter().map(|out| outputs.contains(out)).all(|v| v);

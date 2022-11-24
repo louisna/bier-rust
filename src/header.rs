@@ -1,4 +1,4 @@
-use crate::bier::{Result, Error};
+use crate::bier::{Error, Result};
 
 #[allow(dead_code)]
 pub struct BierHeader {
@@ -18,8 +18,8 @@ pub struct BierHeader {
     bitstring: Vec<u64>,
 }
 
-const BIER_MINIMUM_HEADER_LENGTH: usize = 20;
-const BIER_HEADER_WITHOUT_BITSTRING_LENGTH: usize = 12;
+pub const BIER_MINIMUM_HEADER_LENGTH: usize = 20;
+pub const BIER_HEADER_WITHOUT_BITSTRING_LENGTH: usize = 12;
 
 impl BierHeader {
     pub fn from_slice(slice: &[u8]) -> Result<BierHeader> {
@@ -53,6 +53,14 @@ impl BierHeader {
         };
 
         Ok(header)
+    }
+
+    pub fn get_bitstring(&self) -> crate::bier::Bitstring {
+        self.bitstring.clone().into()
+    }
+
+    pub fn get_bift_id(&self) -> u32 {
+        self.bift_id
     }
 }
 
@@ -126,19 +134,17 @@ unsafe fn get_unchecked_be_u32(ptr: *const u8) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_bier_header_from_bytes() {
         let buf = [
-            0u8,
-            0,
-            0x43, // BIFT-ID + TC + S
-            7, // TTL
+            0u8, 0, 0x43, // BIFT-ID + TC + S
+            7,    // TTL
             0x51, // Nibble + Version
             0x10, // BSL + Entropy
-            0x0, 0x3, // Entropy
+            0x0, 0x3,  // Entropy
             0xf1, // Oam + Rsv + DSCP
-            0x4, // DSCP + Proto
+            0x4,  // DSCP + Proto
             0x0, 0x11, // BFR-ID
             0, 0, 0, 0, 0, 0, 0xff, 0xff, // Bitstring
         ];
@@ -162,23 +168,13 @@ mod tests {
         assert_eq!(bier_header.bfr_id, 0x11);
         assert_eq!(bier_header.bitstring.len(), 1);
         assert_eq!(bier_header.bitstring[0], 0xffff);
-
     }
 
     #[test]
     fn test_bier_header_from_bytes_wrong_bitstring_length() {
         let buf = [
-            0u8,
-            0,
-            0x43, 
-            7,
-            0x51, 
-            0x20, // BSL of 2
-            0x0, 0x3, 
-            0xf1, 
-            0x4, 
-            0x0, 0x11, 
-            0, 0, 0, 0, 0, 0, 0xff, 0xff, 
+            0u8, 0, 0x43, 7, 0x51, 0x20, // BSL of 2
+            0x0, 0x3, 0xf1, 0x4, 0x0, 0x11, 0, 0, 0, 0, 0, 0, 0xff, 0xff,
         ];
 
         let bier_header_opt = BierHeader::from_slice(&buf);
