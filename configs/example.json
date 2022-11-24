@@ -1,0 +1,65 @@
+{
+    "loopback": "fc00::a",
+    "bifts": [
+        {
+            "bift_id": 1,
+            "bift_type": 1,
+            "bfr_id": 1,
+            "entries": [
+                {
+                    "bit": 1,
+                    "paths": [
+                        {
+                            "bitstring": "1",
+                            "next_hop": "fc00:a::1"
+                        }
+                    ]
+                },
+                {
+                    "bit": 2,
+                    "paths": [
+                        {
+                            "bitstring": "11010",
+                            "next_hop": "fc00:b::1"
+                        }
+                    ]
+                },
+                {
+                    "bit": 3,
+                    "paths": [
+                        {
+                            "bitstring": "11100",
+                            "next_hop": "fc00:c::1"
+                        }
+                    ]
+                },
+                {
+                    "bit": 4,
+                    "paths": [
+                        {
+                            "bitstring": "11010",
+                            "next_hop": "fc00:b::1"
+                        },
+                        {
+                            "bitstring": "11100",
+                            "next_hop": "fc00:c::1"
+                        }
+                    ]
+                },
+                {
+                    "bit": 5,
+                    "paths": [
+                        {
+                            "bitstring": "11010",
+                            "next_hop": "fc00:b::1"
+                        },
+                        {
+                            "bitstring": "11100",
+                            "next_hop": "fc00:c::1"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
