@@ -86,9 +86,9 @@ fn main() {
 
         for event in &events {
             if event.token() == TOKEN_UNIX_SOCK {
-                // Received a BIER packet from the network.
-            } else if event.token() == TOKEN_IP_SOCK {
                 // Received a multicast payload locally by an upper-layer program.
+            } else if event.token() == TOKEN_IP_SOCK {
+                // Received a BIER packet from the network.
                 let (read, _) = bier_unix_sock
                     .recv_from(buffer.spare_capacity_mut())
                     .unwrap();
