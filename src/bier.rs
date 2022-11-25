@@ -105,7 +105,7 @@ struct BierEntryPath {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bitstring {
-    bitstring: Vec<u64>,
+    pub bitstring: Vec<u64>,
 }
 
 impl Bitstring {
@@ -119,10 +119,6 @@ impl Bitstring {
                 BitstringOp::AndNot => bw_self & !bw_other,
             })
             .collect();
-    }
-
-    pub fn get_ref(&self) -> &[u64] {
-        &self.bitstring
     }
 
     pub fn update_header_from_self(&self, header: &mut [u8]) -> Result<()> {
@@ -146,10 +142,7 @@ impl Bitstring {
     }
 
     pub fn is_valid(slice: &[u8]) -> bool {
-        match slice.len() {
-            8 | 16 | 32 | 64 | 128 | 256 => true,
-            _ => false,
-        }
+        matches!(slice.len(), 8 | 16 | 32 | 64 | 128 | 256)
     }
 }
 

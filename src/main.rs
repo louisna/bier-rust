@@ -5,9 +5,9 @@ use std::os::unix::prelude::AsRawFd;
 
 use clap::Parser;
 
+use bier_rust::api::RecvInfo;
 use bier_rust::bier::BierState;
 use serde_json::{from_reader, from_value, Value};
-use bier_rust::api::RecvInfo;
 
 #[derive(Parser)]
 struct Args {
@@ -87,72 +87,89 @@ fn main() {
         }
 
         for event in &events {
-            if event.token() == TOKEN_UNIX_SOCK {
+            let (bier_header, packet) = if event.token() == TOKEN_UNIX_SOCK {
                 // Received a multicast payload locally by an upper-layer program.
-                let (read, _) = bier_unix_sock.recv_from(buffer.spare_capacity_mut()).unwrap();
+                let (read, _) = bier_unix_sock
+                    .recv_from(buffer.spare_capacity_mut())
+                    .unwrap();
 
                 // Parse the payload of the user to get the BIER information as well as the payload.
                 let recv_info = RecvInfo::from_slice(&buffer[..read]).unwrap();
 
-                // Copy the
-
-                
-            } else if event.token() == TOKEN_IP_SOCK {
-                // Received a BIER packet from the network.
-                let (read, _) = bier_ip_sock
-                    .recv_from(buffer.spare_capacity_mut())
-                    .unwrap();
-                let bier_header = bier_rust::header::BierHeader::from_slice(&buffer[..read])
-                    .expect("Cannot convert the BIER header");
-                let bier_next_hops = match bier_state
-                    .process_bier(&bier_header.get_bitstring(), bier_header.get_bift_id())
-                {
+                let bier_header = match bier_rust::header::BierHeader::from_recv_info(&recv_info) {
                     Ok(v) => v,
                     Err(e) => {
-                        debug!(
-                            "Error when processing the BIER packet: {:?}, continuing...",
-                            e
-                        );
+                        error!("Impossible to get a BIER header from UNIX: {:?}", e);
                         continue;
                     }
                 };
+                bier_header.to_slice(&mut output_buff[..]).unwrap();
 
-                // For each next-hop, send the modified packet to the socket with the IP tunnel.
-                for (bitstring, nxt_hop) in bier_next_hops {
-                    // Update the BIER bitstring with the provided bitstring.
-                    match bitstring.update_header_from_self(&mut buffer[..read]) {
-                        Ok(_) => debug!("Updated the header"),
+                // Copy the payload.
+                output_buff[bier_header.header_length()..].copy_from_slice(recv_info.payload);
+
+                let packet =
+                    &mut output_buff[..bier_header.header_length() + recv_info.payload.len()];
+                (bier_header, packet)
+            } else if event.token() == TOKEN_IP_SOCK {
+                // Received a BIER packet from the network.
+                let (read, _) = bier_ip_sock.recv_from(buffer.spare_capacity_mut()).unwrap();
+                let bier_header = bier_rust::header::BierHeader::from_slice(&buffer[..read])
+                    .expect("Cannot convert the BIER header");
+
+                (bier_header, &mut buffer[..read])
+            } else {
+                error!("Unrecognized token: {:?}", event.token());
+                continue;
+            };
+            let bier_next_hops = match bier_state
+                .process_bier(&bier_header.get_bitstring(), bier_header.get_bift_id())
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!(
+                        "Error when processing the BIER packet: {:?}, continuing...",
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            // For each next-hop, send the modified packet to the socket with the IP tunnel.
+            for (bitstring, nxt_hop) in bier_next_hops {
+                // Update the BIER bitstring with the provided bitstring.
+                match bitstring.update_header_from_self(packet) {
+                    Ok(_) => debug!("Updated the header"),
+                    Err(e) => {
+                        debug!("Error when updating the packet: {:?}, continuing...", e);
+                        continue;
+                    }
+                }
+
+                if let Some(dst) = nxt_hop {
+                    // Send it to the IP socket.
+                    let sock_addr = std::net::SocketAddr::new(dst, 0);
+                    match bier_ip_sock.send_to(packet, &sock_addr.into()) {
+                        Ok(_) => debug!("Sent the packet to {:?}", dst),
                         Err(e) => {
-                            debug!("Error when updating the packet: {:?}, continuing...", e);
+                            debug!("Error when sending the packet to {:?}. Error is: {:?}, continuing...", dst, e);
                             continue;
                         }
                     }
-
-                    if let Some(dst) = nxt_hop {
-                        // Send it to the IP socket.
-                        let sock_addr = std::net::SocketAddr::new(dst, 0);
-                        match bier_ip_sock.send_to(&buffer[..read], &sock_addr.into()) {
-                            Ok(_) => debug!("Sent the packet to {:?}", dst),
+                } else {
+                    // This BFER is the destination of the packet. Send it locally to the upper-layer.
+                    // For the upper-layer program, we remove the BIER header.
+                    let payload = &packet[bier_header.header_length()..];
+                    if let Some(def_app_path) = &args.default_unix_path {
+                        let dst = socket2::SockAddr::unix(def_app_path).unwrap();
+                        match bier_unix_sock.send_to(payload, &dst) {
+                            Ok(_) => debug!(
+                                "Sent a packet to the local default program: {}",
+                                def_app_path
+                            ),
                             Err(e) => {
-                                debug!("Error when sending the packet to {:?}. Error is: {:?}, continuing...", dst, e);
+                                debug!("Error when sending a packet to the local default program: {}. Error is: {:?}, continuing...", def_app_path, e);
                                 continue;
-                            }
-                        }
-                    } else {
-                        // This BFER is the destination of the packet. Send it locally to the upper-layer.
-                        // For the upper-layer program, we remove the BIER header.
-                        let payload = &buffer[bier_header.header_length()..read];
-                        if let Some(def_app_path) = &args.default_unix_path {
-                            let dst = socket2::SockAddr::unix(def_app_path).unwrap();
-                            match bier_unix_sock.send_to(payload, &dst) {
-                                Ok(_) => debug!(
-                                    "Sent a packet to the local default program: {}",
-                                    def_app_path
-                                ),
-                                Err(e) => {
-                                    debug!("Error when sending a packet to the local default program: {}. Error is: {:?}, continuing...", def_app_path, e);
-                                    continue;
-                                }
                             }
                         }
                     }

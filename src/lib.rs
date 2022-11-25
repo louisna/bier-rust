@@ -1,12 +1,12 @@
-pub mod header;
-pub mod bier;
 pub mod api;
+pub mod bier;
+pub mod header;
 
-pub unsafe fn get_unchecked_be_u16(ptr: *const u8) -> u16 {
+unsafe fn get_unchecked_be_u16(ptr: *const u8) -> u16 {
     u16::from_be_bytes([*ptr, *ptr.add(1)])
 }
 
-pub unsafe fn get_unchecked_be_u32(ptr: *const u8) -> u32 {
+unsafe fn get_unchecked_be_u32(ptr: *const u8) -> u32 {
     u32::from_be_bytes([*ptr, *ptr.add(1), *ptr.add(2), *ptr.add(3)])
 }
 

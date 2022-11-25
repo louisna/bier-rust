@@ -57,7 +57,7 @@ impl BierHeader {
     }
 
     pub fn to_slice(&self, slice: &mut [u8]) -> Result<()> {
-        if slice.len() != self.header_length() {
+        if slice.len() < self.header_length() {
             return Err(Error::SliceWrongLength);
         }
 
@@ -103,6 +103,16 @@ impl BierHeader {
 
     pub fn header_length(&self) -> usize {
         BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len() * 8
+    }
+
+    pub fn from_recv_info(recv_info: &crate::api::RecvInfo) -> Result<Self> {
+        let bitstring: crate::bier::Bitstring = recv_info.bitstring.try_into()?;
+
+        Ok(BierHeader {
+            bift_id: recv_info.bift_id,
+            bitstring: bitstring.bitstring,
+            ..Default::default()
+        })
     }
 }
 
