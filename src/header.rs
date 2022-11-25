@@ -1,6 +1,7 @@
 use crate::bier::{Error, Result};
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct BierHeader {
     bift_id: u32,
     tc: u8,
@@ -55,12 +56,64 @@ impl BierHeader {
         Ok(header)
     }
 
+    pub fn to_slice(&self, slice: &mut [u8]) -> Result<()> {
+        if slice.len() != self.header_length() {
+            return Err(crate::bier::Error::SliceWrongLength);
+        }
+
+        let val: u32 = (self.bift_id << 12) + ((self.tc as u32) << 9) + ((self.s as u32) << 8) + (self.ttl as u32);
+        let bytes: [u8; 4] = val.to_be_bytes();
+        slice[..4].copy_from_slice(&bytes);
+
+        let val: u32 = ((self.nibble as u32) << 28) + ((self.ver as u32) << 24) + ((self.bsl as u32) << 20) + self.entropy;
+        let bytes: [u8; 4] = val.to_be_bytes();
+        slice[4..8].copy_from_slice(&bytes);
+
+        let val: u32 = ((self.oam as u32) << 30) + ((self.rsv as u32) << 28) + ((self.dscp as u32) << 22) + ((self.proto as u32) << 16) + (self.bfr_id as u32);
+        let bytes: [u8; 4] = val.to_be_bytes();
+        slice[8..12].copy_from_slice(&bytes);
+
+        unsafe {
+            let bitstring: Vec<u64> = self.bitstring.iter().map(|item| item.to_be()).collect();
+            let p = bitstring.as_ptr() as *const u8;
+            let bitstring = std::slice::from_raw_parts(p, self.bitstring.len() * 8);
+            slice[12..].copy_from_slice(bitstring);
+        }
+
+        Ok(())
+    }
+
     pub fn get_bitstring(&self) -> crate::bier::Bitstring {
         self.bitstring.clone().into()
     }
 
     pub fn get_bift_id(&self) -> u32 {
         self.bift_id
+    }
+
+    pub fn header_length(&self) -> usize {
+        BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len() * 8
+    }
+}
+
+impl Default for BierHeader {
+    fn default() -> Self {
+        Self {
+            bift_id: Default::default(),
+            tc: Default::default(),
+            s: Default::default(),
+            ttl: Default::default(),
+            nibble: Default::default(),
+            ver: Default::default(),
+            bsl: 0,
+            entropy: Default::default(),
+            oam: Default::default(),
+            dscp: Default::default(),
+            rsv: Default::default(),
+            proto: Default::default(),
+            bfr_id: Default::default(),
+            bitstring: vec![0; 1],
+        }
     }
 }
 
@@ -132,12 +185,11 @@ unsafe fn get_unchecked_be_u32(ptr: *const u8) -> u32 {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
-    #[test]
-    fn test_bier_header_from_bytes() {
-        let buf = [
+    pub fn get_dummy_bier_header_slice() -> [u8; 20] {
+        [
             0u8, 0, 0x43, // BIFT-ID + TC + S
             7,    // TTL
             0x51, // Nibble + Version
@@ -147,7 +199,12 @@ mod tests {
             0x4,  // DSCP + Proto
             0x0, 0x11, // BFR-ID
             0, 0, 0, 0, 0, 0, 0xff, 0xff, // Bitstring
-        ];
+        ]
+    }
+
+    #[test]
+    fn test_bier_header_from_bytes() {
+        let buf = get_dummy_bier_header_slice();
 
         let bier_header_opt = BierHeader::from_slice(&buf);
         assert!(bier_header_opt.is_ok());
@@ -179,5 +236,34 @@ mod tests {
 
         let bier_header_opt = BierHeader::from_slice(&buf);
         assert!(bier_header_opt.is_err());
+    }
+
+    #[test]
+    fn test_bier_header_to_slice_dummy() {
+        // Get a dummy BIER header and slice it.
+        let bier_header = BierHeader::default();
+        let mut buff = [42u8; BIER_MINIMUM_HEADER_LENGTH];
+
+        assert!(bier_header.to_slice(&mut buff).is_ok());
+
+        let expected = [0u8; BIER_MINIMUM_HEADER_LENGTH];
+        assert_eq!(buff, expected);
+    }
+
+    #[test]
+    fn test_bier_header_to_slice() {
+        let buf = get_dummy_bier_header_slice();
+
+        // Convert to a BIER header.
+        let bier_header = BierHeader::from_slice(&buf).unwrap();
+
+        // Convert back to a slice in a different buffer.
+        let mut res = [0u8; 20];
+        assert!(bier_header.to_slice(&mut res).is_ok());
+        println!("BIER header: {:?}", bier_header);
+
+        // Expect the result to be the same.
+        assert_eq!(buf, res);
+
     }
 }

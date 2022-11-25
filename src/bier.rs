@@ -75,8 +75,6 @@ impl BierState {
         Ok(out)
     }
 
-    // pub fn
-
     pub fn get_loopback(&self) -> IpAddr {
         self.loopback
     }
@@ -133,10 +131,11 @@ impl Bitstring {
 
         // Get the bitstring.
         let bitstring_hdr = &mut header[crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH
-        ..crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len()];
+        ..crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len() * 8];
 
         unsafe {
-            let p = self.bitstring.as_ptr() as *const u8;
+            let bitstring: Vec<u64> = self.bitstring.iter().map(|item| item.to_be()).collect();
+            let p = bitstring.as_ptr() as *const u8;
             let slice = std::slice::from_raw_parts(p, self.bitstring.len() * 8);
             bitstring_hdr.copy_from_slice(slice);
         }
@@ -214,6 +213,9 @@ pub enum Error {
 
     /// Wrong Bitstring length.
     BitstringLength,
+
+    /// The buffer does not have the correct length for the BIER header.
+    SliceWrongLength,
 }
 
 #[cfg(test)]
@@ -442,5 +444,30 @@ mod tests {
 
         let res = expected.iter().map(|out| outputs.contains(out)).all(|v| v);
         assert!(res);
+    }
+
+    #[test]
+    /// Tests that the update_header_from_self() method of the Bitstring struct
+    /// correctly encodes a new bitstring in a packet slice.
+    fn test_bitstring_update_header_from_self() {
+        let bitstring = Bitstring::from_str("1101");
+        assert!(bitstring.is_ok());
+        let bitstring = bitstring.unwrap();
+
+        // Get dummy header.
+        let mut header = crate::header::tests::get_dummy_bier_header_slice();
+        
+        // Modify the bitstring of the header.
+        assert!(bitstring.update_header_from_self(&mut header).is_ok());
+
+        // The bitstring is correctly updated.
+        let expected = [0u8, 0, 0, 0, 0, 0, 0, 0b1101];
+        assert_eq!(expected, header[12..]);
+
+        // The remaining of the header is the same.
+        let expected = crate::header::tests::get_dummy_bier_header_slice();
+        assert_eq!(expected[..12], header[..12]);
+
+
     }
 }
