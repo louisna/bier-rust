@@ -115,7 +115,7 @@ fn main() {
                         Err(e) => {
                             debug!("Error when updating the packet: {:?}, continuing...", e);
                             continue;
-                        },
+                        }
                     }
 
                     if let Some(dst) = nxt_hop {
@@ -135,7 +135,10 @@ fn main() {
                         if let Some(def_app_path) = &args.default_unix_path {
                             let dst = socket2::SockAddr::unix(def_app_path).unwrap();
                             match bier_unix_sock.send_to(payload, &dst) {
-                                Ok(_) => debug!("Sent a packet to the local default program: {}", def_app_path),
+                                Ok(_) => debug!(
+                                    "Sent a packet to the local default program: {}",
+                                    def_app_path
+                                ),
                                 Err(e) => {
                                     debug!("Error when sending a packet to the local default program: {}. Error is: {:?}, continuing...", def_app_path, e);
                                     continue;

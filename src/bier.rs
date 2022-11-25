@@ -125,13 +125,14 @@ impl Bitstring {
     }
 
     pub fn update_header_from_self(&self, header: &mut [u8]) -> Result<()> {
-        if header.len() < crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len() {
+        if header.len() < crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len()
+        {
             return Err(crate::bier::Error::BitstringLength);
         }
 
         // Get the bitstring.
         let bitstring_hdr = &mut header[crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH
-        ..crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len() * 8];
+            ..crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len() * 8];
 
         unsafe {
             let bitstring: Vec<u64> = self.bitstring.iter().map(|item| item.to_be()).collect();
@@ -139,7 +140,7 @@ impl Bitstring {
             let slice = std::slice::from_raw_parts(p, self.bitstring.len() * 8);
             bitstring_hdr.copy_from_slice(slice);
         }
-        
+
         Ok(())
     }
 }
@@ -456,7 +457,7 @@ mod tests {
 
         // Get dummy header.
         let mut header = crate::header::tests::get_dummy_bier_header_slice();
-        
+
         // Modify the bitstring of the header.
         assert!(bitstring.update_header_from_self(&mut header).is_ok());
 
@@ -467,7 +468,5 @@ mod tests {
         // The remaining of the header is the same.
         let expected = crate::header::tests::get_dummy_bier_header_slice();
         assert_eq!(expected[..12], header[..12]);
-
-
     }
 }

@@ -61,15 +61,25 @@ impl BierHeader {
             return Err(crate::bier::Error::SliceWrongLength);
         }
 
-        let val: u32 = (self.bift_id << 12) + ((self.tc as u32) << 9) + ((self.s as u32) << 8) + (self.ttl as u32);
+        let val: u32 = (self.bift_id << 12)
+            + ((self.tc as u32) << 9)
+            + ((self.s as u32) << 8)
+            + (self.ttl as u32);
         let bytes: [u8; 4] = val.to_be_bytes();
         slice[..4].copy_from_slice(&bytes);
 
-        let val: u32 = ((self.nibble as u32) << 28) + ((self.ver as u32) << 24) + ((self.bsl as u32) << 20) + self.entropy;
+        let val: u32 = ((self.nibble as u32) << 28)
+            + ((self.ver as u32) << 24)
+            + ((self.bsl as u32) << 20)
+            + self.entropy;
         let bytes: [u8; 4] = val.to_be_bytes();
         slice[4..8].copy_from_slice(&bytes);
 
-        let val: u32 = ((self.oam as u32) << 30) + ((self.rsv as u32) << 28) + ((self.dscp as u32) << 22) + ((self.proto as u32) << 16) + (self.bfr_id as u32);
+        let val: u32 = ((self.oam as u32) << 30)
+            + ((self.rsv as u32) << 28)
+            + ((self.dscp as u32) << 22)
+            + ((self.proto as u32) << 16)
+            + (self.bfr_id as u32);
         let bytes: [u8; 4] = val.to_be_bytes();
         slice[8..12].copy_from_slice(&bytes);
 
@@ -264,6 +274,5 @@ pub mod tests {
 
         // Expect the result to be the same.
         assert_eq!(buf, res);
-
     }
 }
