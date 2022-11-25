@@ -1,3 +1,4 @@
+use crate::{Error, Result};
 use serde::{de, Deserialize, Deserializer};
 use serde_repr::Deserialize_repr;
 use std::{net::IpAddr, str::FromStr};
@@ -127,7 +128,7 @@ impl Bitstring {
     pub fn update_header_from_self(&self, header: &mut [u8]) -> Result<()> {
         if header.len() < crate::header::BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len()
         {
-            return Err(crate::bier::Error::BitstringLength);
+            return Err(Error::BitstringLength);
         }
 
         // Get the bitstring.
@@ -142,6 +143,13 @@ impl Bitstring {
         }
 
         Ok(())
+    }
+
+    pub fn is_valid(slice: &[u8]) -> bool {
+        match slice.len() {
+            8 | 16 | 32 | 64 | 128 | 256 => true,
+            _ => false,
+        }
     }
 }
 
@@ -158,6 +166,26 @@ impl<'de> Deserialize<'de> for Bitstring {
 impl From<Vec<u64>> for Bitstring {
     fn from(slice: Vec<u64>) -> Self {
         Bitstring { bitstring: slice }
+    }
+}
+
+impl TryFrom<&[u8]> for Bitstring {
+    type Error = crate::Error;
+
+    fn try_from(value: &[u8]) -> crate::Result<Self> {
+        if !Bitstring::is_valid(value) {
+            return Err(crate::Error::BitstringLength);
+        }
+
+        Ok(Bitstring {
+            bitstring: {
+                unsafe {
+                    let p = value.as_ptr() as *mut u64;
+                    let slice = std::slice::from_raw_parts(p, value.len() / 8);
+                    slice.iter().map(|item| item.to_be()).collect()
+                }
+            },
+        })
     }
 }
 
@@ -192,31 +220,6 @@ pub enum BiftType {
 pub enum BitstringOp {
     And = 1,
     AndNot = 2,
-}
-
-/// Custom result used for Bier processing.
-pub type Result<T> = std::result::Result<T, Error>;
-
-/// A BIER error.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Error {
-    /// Impossible to parse the Bier header.
-    Header,
-
-    /// Invalid BIFT-ID.
-    BiftId,
-
-    /// Impossible to parse the BIFTs.
-    BiftParsing,
-
-    /// No entry in the BIFT.
-    NoEntry,
-
-    /// Wrong Bitstring length.
-    BitstringLength,
-
-    /// The buffer does not have the correct length for the BIER header.
-    SliceWrongLength,
 }
 
 #[cfg(test)]
@@ -468,5 +471,48 @@ mod tests {
         // The remaining of the header is the same.
         let expected = crate::header::tests::get_dummy_bier_header_slice();
         assert_eq!(expected[..12], header[..12]);
+    }
+
+    #[test]
+    /// Tests the function returning if a bitstring given as input is valid
+    /// following RFC 8279.
+    fn test_bitstring_is_valid() {
+        for i in 0..6 {
+            let bitstring = vec![0u8; 8 << i];
+            assert!(Bitstring::is_valid(&bitstring[..]));
+            assert!(!Bitstring::is_valid(&bitstring[1..]));
+        }
+    }
+
+    #[test]
+    /// Tests the parsing of bitstring from &[u8].
+    fn test_bitstring_from_slice_u8() {
+        let raw = [0u8, 0, 0, 0, 0, 0, 0, 1];
+        let res: Result<Bitstring> = raw.as_ref().try_into();
+        assert!(res.is_ok());
+        let res = res.unwrap();
+        assert_eq!(res.bitstring.len(), 1);
+        assert_eq!(res.bitstring[0], 1);
+
+        let raw = [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff];
+        let res: Result<Bitstring> = raw.as_ref().try_into();
+        assert!(res.is_ok());
+        let res = res.unwrap();
+        assert_eq!(res.bitstring.len(), 2);
+        assert_eq!(res.bitstring[0], 0);
+        assert_eq!(res.bitstring[1], 0xffff);
+
+        // Wrong bitstring.
+        let raw = [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff];
+        let res: Result<Bitstring> = raw.as_ref().try_into();
+        assert!(res.is_err());
+
+        let raw = [0u8, 0, 0, 0, 0xff, 0xff];
+        let res: Result<Bitstring> = raw.as_ref().try_into();
+        assert!(res.is_err());
+
+        let raw: [u8; 0] = [];
+        let res: Result<Bitstring> = raw.as_ref().try_into();
+        assert!(res.is_err());
     }
 }

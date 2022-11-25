@@ -7,6 +7,7 @@ use clap::Parser;
 
 use bier_rust::bier::BierState;
 use serde_json::{from_reader, from_value, Value};
+use bier_rust::api::RecvInfo;
 
 #[derive(Parser)]
 struct Args {
@@ -72,6 +73,7 @@ fn main() {
         .unwrap();
 
     let mut buffer: Vec<u8> = Vec::with_capacity(4096);
+    let mut output_buff = vec![0u8; 2048];
 
     // Start listening for BIER packets.
     // TOKEN_IP_SOCK: receives a BIER packet from the network.
@@ -87,9 +89,17 @@ fn main() {
         for event in &events {
             if event.token() == TOKEN_UNIX_SOCK {
                 // Received a multicast payload locally by an upper-layer program.
+                let (read, _) = bier_unix_sock.recv_from(buffer.spare_capacity_mut()).unwrap();
+
+                // Parse the payload of the user to get the BIER information as well as the payload.
+                let recv_info = RecvInfo::from_slice(&buffer[..read]).unwrap();
+
+                // Copy the
+
+                
             } else if event.token() == TOKEN_IP_SOCK {
                 // Received a BIER packet from the network.
-                let (read, _) = bier_unix_sock
+                let (read, _) = bier_ip_sock
                     .recv_from(buffer.spare_capacity_mut())
                     .unwrap();
                 let bier_header = bier_rust::header::BierHeader::from_slice(&buffer[..read])

@@ -1,4 +1,4 @@
-use crate::bier::{Error, Result};
+use crate::{Error, Result};
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -58,7 +58,7 @@ impl BierHeader {
 
     pub fn to_slice(&self, slice: &mut [u8]) -> Result<()> {
         if slice.len() != self.header_length() {
-            return Err(crate::bier::Error::SliceWrongLength);
+            return Err(Error::SliceWrongLength);
         }
 
         let val: u32 = (self.bift_id << 12)
@@ -128,7 +128,7 @@ impl Default for BierHeader {
 }
 
 fn get_bift_id(slice: &[u8]) -> u32 {
-    unsafe { (get_unchecked_be_u32(slice.as_ptr()) & 0xfffff000) >> 12 }
+    unsafe { (crate::get_unchecked_be_u32(slice.as_ptr()) & 0xfffff000) >> 12 }
 }
 
 fn get_tc(slice: &[u8]) -> u8 {
@@ -156,7 +156,7 @@ fn get_bsl(slice: &[u8]) -> u8 {
 }
 
 fn get_entropy(slice: &[u8]) -> u32 {
-    unsafe { get_unchecked_be_u32(slice.as_ptr().add(4)) & 0xfffff }
+    unsafe { crate::get_unchecked_be_u32(slice.as_ptr().add(4)) & 0xfffff }
 }
 
 fn get_oam(slice: &[u8]) -> u8 {
@@ -168,7 +168,7 @@ fn get_rsv(slice: &[u8]) -> u8 {
 }
 
 fn get_dscp(slice: &[u8]) -> u8 {
-    unsafe { ((get_unchecked_be_u16(slice.as_ptr().add(8)) & 0xfc0) >> 6) as u8 }
+    unsafe { ((crate::get_unchecked_be_u16(slice.as_ptr().add(8)) & 0xfc0) >> 6) as u8 }
 }
 
 fn get_proto(slice: &[u8]) -> u8 {
@@ -176,7 +176,7 @@ fn get_proto(slice: &[u8]) -> u8 {
 }
 
 fn get_bifr_id(slice: &[u8]) -> u16 {
-    unsafe { get_unchecked_be_u16(slice.as_ptr().add(10)) }
+    unsafe { crate::get_unchecked_be_u16(slice.as_ptr().add(10)) }
 }
 
 fn get_bitstring(slice: &[u8]) -> Vec<u64> {
@@ -184,14 +184,6 @@ fn get_bitstring(slice: &[u8]) -> Vec<u64> {
         .chunks(8)
         .map(|chunk| u64::from_be_bytes(chunk.try_into().unwrap()))
         .collect::<Vec<u64>>()
-}
-
-unsafe fn get_unchecked_be_u16(ptr: *const u8) -> u16 {
-    u16::from_be_bytes([*ptr, *ptr.add(1)])
-}
-
-unsafe fn get_unchecked_be_u32(ptr: *const u8) -> u32 {
-    u32::from_be_bytes([*ptr, *ptr.add(1), *ptr.add(2), *ptr.add(3)])
 }
 
 #[cfg(test)]
