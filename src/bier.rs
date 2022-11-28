@@ -203,6 +203,12 @@ impl FromStr for Bitstring {
     }
 }
 
+impl From<&Bitstring> for Vec<u8> {
+    fn from(bitstring: &Bitstring) -> Self {
+        bitstring.bitstring.iter().flat_map(|elem| elem.to_be_bytes()).collect()
+    }
+}
+
 #[derive(Deserialize_repr, PartialEq, Eq, Debug)]
 #[repr(u32)]
 pub enum BiftType {
@@ -507,5 +513,20 @@ mod tests {
         let raw: [u8; 0] = [];
         let res: Result<Bitstring> = raw.as_ref().try_into();
         assert!(res.is_err());
+    }
+
+    #[test]
+    /// Tests the conversion of a Bitstring to a Vec<u8> method.
+    fn test_vec_u8_from_bitstring() {
+        let raw = [0u8, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let res: Result<Bitstring> = raw.as_ref().try_into();
+        assert!(res.is_ok());
+        let res = res.unwrap();
+        assert_eq!(res.bitstring.len(), 2);
+
+        // Convert to an array of u8.
+        let res_u8: Vec<u8> = (&res).into();
+        assert_eq!(res_u8.len(), 16);
+        assert_eq!(res_u8, raw);
     }
 }
