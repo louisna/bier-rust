@@ -1,11 +1,16 @@
-pub struct RecvInfo<'a> {
+use crate::{Error, Result};
+
+pub type SendInfo<'a> = CommunicationInfo<'a>;
+pub type RecvInfo<'a> = CommunicationInfo<'a>;
+
+pub struct CommunicationInfo<'a> {
     pub bift_id: u32,
     pub bitstring: &'a [u8],
     pub payload: &'a [u8],
 }
 
-impl RecvInfo<'_> {
-    pub fn from_slice(slice: &'_ [u8]) -> crate::Result<RecvInfo> {
+impl CommunicationInfo<'_> {
+    pub fn from_slice(slice: &'_ [u8]) -> Result<CommunicationInfo> {
         let bift_id = unsafe { crate::get_unchecked_be_u32(slice.as_ptr()) };
 
         let bitstring_length =
@@ -15,11 +20,25 @@ impl RecvInfo<'_> {
             return Err(crate::Error::SliceWrongLength);
         }
 
-        Ok(RecvInfo {
+        Ok(CommunicationInfo {
             bift_id,
             bitstring: &slice[6..6 + bitstring_length],
             payload: &slice[6 + bitstring_length..],
         })
+    }
+
+    pub fn to_slice(&self, slice: &mut [u8]) -> Result<usize> {
+        let len = 4 + self.bitstring.len() + self.payload.len();
+        if slice.len() < len {
+            return Err(Error::SliceWrongLength);
+        }
+
+        let val = self.bift_id.to_be_bytes();
+        slice[..4].copy_from_slice(&val);
+        slice[4..4 + self.bitstring.len()].copy_from_slice(&self.bitstring);
+        slice[4 + self.bitstring.len()..len].copy_from_slice(&self.payload);
+
+        Ok(len)
     }
 }
 
@@ -37,7 +56,7 @@ mod tests {
             0, 4, 1, 2, 5, // Payload
         ];
 
-        let recv_info = RecvInfo::from_slice(&buffer);
+        let recv_info = CommunicationInfo::from_slice(&buffer);
         assert!(recv_info.is_ok());
 
         let recv_info = recv_info.unwrap();

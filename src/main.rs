@@ -5,7 +5,7 @@ use std::os::unix::prelude::AsRawFd;
 
 use clap::Parser;
 
-use bier_rust::api::RecvInfo;
+use bier_rust::api::CommunicationInfo;
 use bier_rust::bier::BierState;
 use serde_json::{from_reader, from_value, Value};
 
@@ -94,7 +94,7 @@ fn main() {
                     .unwrap();
 
                 // Parse the payload of the user to get the BIER information as well as the payload.
-                let recv_info = RecvInfo::from_slice(&buffer[..read]).unwrap();
+                let recv_info = CommunicationInfo::from_slice(&buffer[..read]).unwrap();
 
                 let bier_header = match bier_rust::header::BierHeader::from_recv_info(&recv_info) {
                     Ok(v) => v,
