@@ -11,3 +11,6 @@ Cargo.lock
 
 # macos files
 .DS_Store
+
+# Generated configuration files of BIER
+*.json

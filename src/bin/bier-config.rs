@@ -1,7 +1,4 @@
-#[macro_use]
-extern crate log;
-
-use bier_rust::bier::{BierEntryPath, Bift, BiftEntry, Bitstring, BierState};
+use bier_rust::bier::{BierEntryPath, BierState, Bift, BiftEntry, Bitstring};
 use bier_rust::dijkstra::dijkstra;
 use clap::Parser;
 use serde_json::to_writer;
@@ -72,7 +69,8 @@ impl Graph {
                 Some(IpAddr::V6(ip_str.parse().ok()?))
             })
             .into_iter()
-            .collect::<Option<Vec<_>>>().unwrap();
+            .collect::<Option<Vec<_>>>()
+            .unwrap();
 
         let mut nodes = Vec::new(); // We do not know the size at first.
         let reader = BufReader::new(file);
@@ -82,7 +80,7 @@ impl Graph {
         for line in reader.lines() {
             let line = line.unwrap();
             let line = line.trim().trim_end();
-            if line.len() == 0 {
+            if line.is_empty() {
                 continue;
             }
             let split: Vec<&str> = line.split(' ').collect();
@@ -145,7 +143,7 @@ impl Graph {
             let mut bift = Bift {
                 bift_id: 1,
                 bift_type: bier_rust::bier::BiftType::Bier,
-                bfr_id: node as u64,
+                bfr_id: node as u64 + 1,
                 entries: Vec::new(),
             };
 
@@ -229,11 +227,18 @@ mod tests {
     use bier_rust::bier::BierState;
 
     use super::*;
-    use std::path::Path;
     use std::fs::File;
     use std::io::Write;
+    use std::path::Path;
 
     const TEST_DIRECTORY: &str = "test_configs";
+    const EXPECTED_CONFIGURATIONS: [&str; 5] = [
+        r#"{"loopback":"babe:cafe::1","bifts":[{"bift_id":1,"bift_type":1,"bfr_id":1,"entries":[{"bit":0,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000000001","next_hop":"babe:cafe::1"}]},{"bit":1,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000011010","next_hop":"babe:cafe:1::1"}]},{"bit":2,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000011100","next_hop":"babe:cafe:2::1"}]},{"bit":3,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000011010","next_hop":"babe:cafe:1::1"},{"bitstring":"0000000000000000000000000000000000000000000000000000000000011100","next_hop":"babe:cafe:2::1"}]},{"bit":4,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000011010","next_hop":"babe:cafe:1::1"},{"bitstring":"0000000000000000000000000000000000000000000000000000000000011100","next_hop":"babe:cafe:2::1"}]}]}]}"#,
+        r#"{"loopback":"babe:cafe:1::1","bifts":[{"bift_id":1,"bift_type":1,"bfr_id":2,"entries":[{"bit":0,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000000101","next_hop":"babe:cafe::1"}]},{"bit":1,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000000010","next_hop":"babe:cafe:1::1"}]},{"bit":2,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000000101","next_hop":"babe:cafe::1"},{"bitstring":"0000000000000000000000000000000000000000000000000000000000011100","next_hop":"babe:cafe:3::1"}]},{"bit":3,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000011100","next_hop":"babe:cafe:3::1"}]},{"bit":4,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000011100","next_hop":"babe:cafe:3::1"}]}]}]}"#,
+        r#"{"loopback":"babe:cafe:2::1","bifts":[{"bift_id":1,"bift_type":1,"bfr_id":3,"entries":[{"bit":0,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000000011","next_hop":"babe:cafe::1"}]},{"bit":1,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000000011","next_hop":"babe:cafe::1"},{"bitstring":"0000000000000000000000000000000000000000000000000000000000011010","next_hop":"babe:cafe:3::1"}]},{"bit":2,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000000100","next_hop":"babe:cafe:2::1"}]},{"bit":3,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000011010","next_hop":"babe:cafe:3::1"}]},{"bit":4,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000011010","next_hop":"babe:cafe:3::1"}]}]}]}"#,
+        r#"{"loopback":"babe:cafe:3::1","bifts":[{"bift_id":1,"bift_type":1,"bfr_id":4,"entries":[{"bit":0,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000000011","next_hop":"babe:cafe:1::1"},{"bitstring":"0000000000000000000000000000000000000000000000000000000000000101","next_hop":"babe:cafe:2::1"}]},{"bit":1,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000000011","next_hop":"babe:cafe:1::1"}]},{"bit":2,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000000101","next_hop":"babe:cafe:2::1"}]},{"bit":3,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000001000","next_hop":"babe:cafe:3::1"}]},{"bit":4,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000010000","next_hop":"babe:cafe:4::1"}]}]}]}"#,
+        r#"{"loopback":"babe:cafe:4::1","bifts":[{"bift_id":1,"bift_type":1,"bfr_id":5,"entries":[{"bit":0,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000001111","next_hop":"babe:cafe:3::1"}]},{"bit":1,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000001111","next_hop":"babe:cafe:3::1"}]},{"bit":2,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000001111","next_hop":"babe:cafe:3::1"}]},{"bit":3,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000001111","next_hop":"babe:cafe:3::1"}]},{"bit":4,"paths":[{"bitstring":"0000000000000000000000000000000000000000000000000000000000010000","next_hop":"babe:cafe:4::1"}]}]}]}"#,
+    ];
 
     /// This is an "extended" diamond topology.
     ///     a
@@ -262,13 +267,13 @@ mod tests {
         3 babe:cafe:3::1/64
         4 babe:cafe:4::1/64
 "#;
-        
+
         write!(file, "{}", content)
     }
 
-    fn get_bier_state_from_path(path: &Path) -> bier_rust::Result<BierState> {
-        let content = std::fs::read_to_string(path).map_err(|_| bier_rust::Error::BiftId)?;
-        serde_json::from_str(&content).map_err(|e| {println!("Error est: {:?}", e); bier_rust::Error::BiftId})
+    fn get_bier_state_from_path(path: &Path) -> Result<BierState> {
+        let content = std::fs::read_to_string(path).map_err(|_| Error::FileParse)?;
+        serde_json::from_str(&content).map_err(|_| Error::FileParse)
     }
 
     #[test]
@@ -288,22 +293,30 @@ mod tests {
         write_dummy_node_to_ipv6(&node_to_ipv6_path).unwrap();
 
         // Actual test.
-        let graph = Graph::from_file(topo_path.to_str().unwrap(), node_to_ipv6_path.to_str().unwrap());
+        let graph = Graph::from_file(
+            topo_path.to_str().unwrap(),
+            node_to_ipv6_path.to_str().unwrap(),
+        );
         assert!(graph.is_ok());
         let graph = graph.unwrap();
-        let res = graph.get_bier_config(TEST_DIRECTORY, topo_path.file_stem().unwrap().to_str().unwrap());
+        let res = graph.get_bier_config(
+            TEST_DIRECTORY,
+            topo_path.file_stem().unwrap().to_str().unwrap(),
+        );
         assert!(res.is_ok());
 
         // The parsing worked. Now we have to check the BIFTs if the paths are correctly encoded.
-        // Node 0.
-        let bier_state = get_bier_state_from_path(&dir_path.join("topo-0.json"));
-        assert!(bier_state.is_ok());
-        let bier_state = bier_state.unwrap();
-
+        for node_id in 0..5 {
+            let bier_state =
+                get_bier_state_from_path(&dir_path.join(format!("topo-{}.json", node_id)));
+            assert!(bier_state.is_ok());
+            let bier_state = bier_state.unwrap();
+            let expected: BierState =
+                serde_json::from_str(EXPECTED_CONFIGURATIONS[node_id]).unwrap();
+            assert_eq!(bier_state, expected);
+        }
 
         // Clean test.
         std::fs::remove_dir_all(dir_path).unwrap();
-
-        
     }
 }
