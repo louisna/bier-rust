@@ -7,8 +7,8 @@ pub type BierSendInfo = (Bitstring, Option<IpAddr>);
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
 pub struct BierState {
-    loopback: IpAddr,
-    bifts: Vec<Bift>,
+    pub loopback: IpAddr,
+    pub bifts: Vec<Bift>,
 }
 
 impl BierState {
