@@ -35,8 +35,8 @@ impl CommunicationInfo<'_> {
 
         let val = self.bift_id.to_be_bytes();
         slice[..4].copy_from_slice(&val);
-        slice[4..4 + self.bitstring.len()].copy_from_slice(&self.bitstring);
-        slice[4 + self.bitstring.len()..len].copy_from_slice(&self.payload);
+        slice[4..4 + self.bitstring.len()].copy_from_slice(self.bitstring);
+        slice[4 + self.bitstring.len()..len].copy_from_slice(self.payload);
 
         Ok(len)
     }

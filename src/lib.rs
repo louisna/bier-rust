@@ -1,6 +1,7 @@
 pub mod api;
 pub mod bier;
 pub mod header;
+pub mod dijkstra;
 
 unsafe fn get_unchecked_be_u16(ptr: *const u8) -> u16 {
     u16::from_be_bytes([*ptr, *ptr.add(1)])

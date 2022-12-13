@@ -1,11 +1,11 @@
 use crate::{Error, Result};
-use serde::{de, Deserialize, Deserializer};
-use serde_repr::Deserialize_repr;
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::{net::IpAddr, str::FromStr};
 
 pub type BierSendInfo = (Bitstring, Option<IpAddr>);
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
 pub struct BierState {
     loopback: IpAddr,
     bifts: Vec<Bift>,
@@ -81,26 +81,26 @@ impl BierState {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
 pub struct Bift {
-    bift_id: usize,
-    bift_type: BiftType,
-    bfr_id: u64,
-    entries: Vec<BiftEntry>,
+    pub bift_id: usize,
+    pub bift_type: BiftType,
+    pub bfr_id: u64,
+    pub entries: Vec<BiftEntry>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
 pub struct BiftEntry {
     /// Bit representing the router of the entry.
-    bit: u64,
+    pub bit: u64,
     /// All (Bitstring, next-hop) pairsfor this bit.
-    paths: Vec<BierEntryPath>,
+    pub paths: Vec<BierEntryPath>,
 }
 
-#[derive(Debug, Deserialize)]
-struct BierEntryPath {
-    bitstring: Bitstring,
-    next_hop: IpAddr,
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct BierEntryPath {
+    pub bitstring: Bitstring,
+    pub next_hop: IpAddr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,6 +156,20 @@ impl<'de> Deserialize<'de> for Bitstring {
     }
 }
 
+impl Serialize for Bitstring {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let a: String = self
+            .bitstring
+            .iter()
+            .rev()
+            .fold(String::new(), |s, v| s + &format!("{:064b}", v));
+        serializer.serialize_str(&a)
+    }
+}
+
 impl From<Vec<u64>> for Bitstring {
     fn from(slice: Vec<u64>) -> Self {
         Bitstring { bitstring: slice }
@@ -186,7 +200,7 @@ impl FromStr for Bitstring {
     type Err = String;
 
     fn from_str(str_bitstring: &str) -> std::result::Result<Self, Self::Err> {
-        let len_of_64_bits = (str_bitstring.len() as f64 / 8.0).ceil() as usize;
+        let len_of_64_bits = (str_bitstring.len() as f64 / 64.0).ceil() as usize;
 
         match (0..len_of_64_bits)
             .map(|i| {
@@ -205,11 +219,15 @@ impl FromStr for Bitstring {
 
 impl From<&Bitstring> for Vec<u8> {
     fn from(bitstring: &Bitstring) -> Self {
-        bitstring.bitstring.iter().flat_map(|elem| elem.to_be_bytes()).collect()
+        bitstring
+            .bitstring
+            .iter()
+            .flat_map(|elem| elem.to_be_bytes())
+            .collect()
     }
 }
 
-#[derive(Deserialize_repr, PartialEq, Eq, Debug)]
+#[derive(Deserialize_repr, Serialize_repr, PartialEq, Eq, Debug)]
 #[repr(u32)]
 pub enum BiftType {
     Bier = 1,
@@ -528,5 +546,26 @@ mod tests {
         let res_u8: Vec<u8> = (&res).into();
         assert_eq!(res_u8.len(), 16);
         assert_eq!(res_u8, raw);
+    }
+
+    #[test]
+    /// Tests the serialization of a BIFT.
+    /// This test assumes that the deserialization of a BIFT works.
+    /// The result of this test is only relevant if the `test_deserialize test works as expected.
+    fn test_bift_serialize() {
+        let txt = get_dummy_config_json();
+        let bier_state: BierState = serde_json::from_str(txt).unwrap();
+
+        // Serialize using the tested procedure.
+        let res = serde_json::to_string(&bier_state);
+        assert!(res.is_ok());
+        let res = res.unwrap();
+
+        // Now deserialize back to get another copy of the structure.
+        let bier_state_after: BierState = serde_json::from_str(&res).unwrap();
+
+        // Assuming that the deserialization works, if we get the same content
+        // between bier_state and bier_state_after, it means that the serialization works.
+        assert_eq!(bier_state, bier_state_after);
     }
 }
