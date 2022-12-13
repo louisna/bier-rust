@@ -65,10 +65,10 @@ impl Graph {
                 let line = line.trim().trim_end();
                 println!("What is this line: {}", line);
                 let ip_str = line.split(' ').nth(1)?.split('/').next()?;
-                println!("IP STR: {}", ip_str);
                 Some(IpAddr::V6(ip_str.parse().ok()?))
             })
             .into_iter()
+            .filter(|value| value.is_some())
             .collect::<Option<Vec<_>>>()
             .unwrap();
 
@@ -266,7 +266,7 @@ mod tests {
         2 babe:cafe:2::1/64
         3 babe:cafe:3::1/64
         4 babe:cafe:4::1/64
-"#;
+        "#;
 
         write!(file, "{}", content)
     }
