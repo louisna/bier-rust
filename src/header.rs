@@ -32,9 +32,11 @@ impl BierHeader {
 
         let bitstring_length = 1 << (bsl + 5);
         let bitstring_length = bitstring_length / 8;
-        if slice.len() - bitstring_length != BIER_HEADER_WITHOUT_BITSTRING_LENGTH {
+        if slice.len() < BIER_HEADER_WITHOUT_BITSTRING_LENGTH + bitstring_length {
             return Err(Error::Header);
         }
+
+        let slice = &slice[..BIER_HEADER_WITHOUT_BITSTRING_LENGTH + bitstring_length];
 
         let header = BierHeader {
             bift_id: get_bift_id(slice),
@@ -87,7 +89,7 @@ impl BierHeader {
             let bitstring: Vec<u64> = self.bitstring.iter().map(|item| item.to_be()).collect();
             let p = bitstring.as_ptr() as *const u8;
             let bitstring = std::slice::from_raw_parts(p, self.bitstring.len() * 8);
-            slice[12..].copy_from_slice(bitstring);
+            slice[12..self.header_length()].copy_from_slice(bitstring);
         }
 
         Ok(())
@@ -107,10 +109,17 @@ impl BierHeader {
 
     pub fn from_recv_info(recv_info: &crate::api::RecvInfo) -> Result<Self> {
         let bitstring: crate::bier::Bitstring = recv_info.bitstring.try_into()?;
+        let bsl = match bitstring.bitstring.len() * 8 {
+            8 => 1,
+            16 => 2,
+            other => ((other as f64).log2() - 4f64) as usize,
+        };
 
         Ok(BierHeader {
             bift_id: recv_info.bift_id,
             bitstring: bitstring.bitstring,
+            proto: recv_info.proto as u8,
+            bsl: bsl as u8,
             ..Default::default()
         })
     }
@@ -272,9 +281,13 @@ pub mod tests {
         // Convert back to a slice in a different buffer.
         let mut res = [0u8; 20];
         assert!(bier_header.to_slice(&mut res).is_ok());
-        println!("BIER header: {:?}", bier_header);
 
         // Expect the result to be the same.
         assert_eq!(buf, res);
+    }
+
+    #[test]
+    fn test_bier_header_from_recv_info() {
+        assert!(false);
     }
 }

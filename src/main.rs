@@ -87,13 +87,22 @@ fn main() {
         }
 
         for event in &events {
+            unsafe {
+                buffer.set_len(0);
+            }
+
             let (bier_header, packet) = if event.token() == TOKEN_UNIX_SOCK {
                 // Received a multicast payload locally by an upper-layer program.
                 let (read, _) = bier_unix_sock
                     .recv_from(buffer.spare_capacity_mut())
                     .unwrap();
+                
+                    unsafe {
+                        buffer.set_len(read);
+                    }
 
                 // Parse the payload of the user to get the BIER information as well as the payload.
+                debug!("Received buffer of length: {:?} with last byte: {}", read, &buffer[read - 1]);
                 let recv_info = CommunicationInfo::from_slice(&buffer[..read]).unwrap();
 
                 let bier_header = match bier_rust::header::BierHeader::from_recv_info(&recv_info) {
@@ -106,14 +115,19 @@ fn main() {
                 bier_header.to_slice(&mut output_buff[..]).unwrap();
 
                 // Copy the payload.
-                output_buff[bier_header.header_length()..].copy_from_slice(recv_info.payload);
+                output_buff[bier_header.header_length()..bier_header.header_length() + recv_info.payload.len()].copy_from_slice(recv_info.payload);
 
                 let packet =
                     &mut output_buff[..bier_header.header_length() + recv_info.payload.len()];
                 (bier_header, packet)
             } else if event.token() == TOKEN_IP_SOCK {
+                debug!("Received a packet from IP");
                 // Received a BIER packet from the network.
                 let (read, _) = bier_ip_sock.recv_from(buffer.spare_capacity_mut()).unwrap();
+                unsafe {
+                    buffer.set_len(read);
+                }
+                
                 let bier_header = bier_rust::header::BierHeader::from_slice(&buffer[..read])
                     .expect("Cannot convert the BIER header");
 

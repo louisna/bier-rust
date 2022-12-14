@@ -36,12 +36,13 @@ fn main() {
     // Put data in the packet buffer.
     let mut buffer = [0u8; 4096];
     let packet = [0u8; 1000];
-    let bitstring = Bitstring::from_str("11001").unwrap();
+    let bitstring = Bitstring::from_str("11110").unwrap();
     let bitstring: Vec<u8> = (&bitstring).into();
 
     // Create the send info and the slice from it.
     let send_info = SendInfo {
         bift_id: 1,
+        proto: 6, // UDP
         bitstring: &bitstring,
         payload: &packet,
     };
@@ -49,7 +50,10 @@ fn main() {
     let bier_addr = socket2::SockAddr::unix(args.bier_path).unwrap();
     let size = send_info.to_slice(&mut buffer[..]).unwrap();
     for _ in 0..args.nb_to_send {
+        buffer[size - 1] += 1;
         sock.send_to(&buffer[..size], &bier_addr).unwrap();
         debug!("Sent a message to BIER process");
+        let ten_millis = std::time::Duration::from_millis(1);
+        std::thread::sleep(ten_millis);
     }
 }
