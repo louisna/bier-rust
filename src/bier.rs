@@ -142,7 +142,11 @@ impl Bitstring {
     }
 
     pub fn is_valid(slice: &[u8]) -> bool {
-        matches!(slice.len(), 8 | 16 | 32 | 64 | 128 | 256)
+        matches!(slice.len(), 8 | 16 | 32 | 64 | 128 | 256 | 512)
+    }
+
+    pub fn is_valid_from_u64(slice: &[u64]) -> bool {
+        matches!(slice.len(), 1 | 2 | 4 | 8 | 16 | 32 | 64)
     }
 }
 
@@ -170,9 +174,15 @@ impl Serialize for Bitstring {
     }
 }
 
-impl From<Vec<u64>> for Bitstring {
-    fn from(slice: Vec<u64>) -> Self {
-        Bitstring { bitstring: slice }
+impl TryFrom<Vec<u64>> for Bitstring {
+    type Error = crate::Error;
+
+    fn try_from(slice: Vec<u64>) -> crate::Result<Self> {
+        if !Bitstring::is_valid_from_u64(&slice[..]) {
+            return Err(crate::Error::BitstringLength);
+        }
+
+        Ok(Bitstring { bitstring: slice })
     }
 }
 
@@ -201,19 +211,32 @@ impl FromStr for Bitstring {
 
     fn from_str(str_bitstring: &str) -> std::result::Result<Self, Self::Err> {
         let len_of_64_bits = (str_bitstring.len() as f64 / 64.0).ceil() as usize;
-
-        match (0..len_of_64_bits)
-            .map(|i| {
-                let lower_bound = str_bitstring.len().saturating_sub(64 * (i + 1));
-                let upper_bound = usize::min(lower_bound + 64, str_bitstring.len());
-                let substr = &str_bitstring[lower_bound..upper_bound];
-                u64::from_str_radix(substr, 2)
-            })
-            .collect()
-        {
-            Ok(v) => Ok(Bitstring { bitstring: v }),
-            Err(e) => Err(format!("Impossible to parse: {:?}", e)),
+        if !matches!(len_of_64_bits, 1 | 2 | 4 | 8 | 16 | 32 | 64) {
+            return Err("String to bitstring not correct length".to_string());
         }
+        let r = str_bitstring.chars().collect::<Vec<char>>().chunks(64).map(|window| {
+            u64::from_str_radix(&String::from_iter(window), 2)
+        }).collect();
+
+
+        match r {
+            Ok(v) => Ok(Bitstring { bitstring: v }),
+            Err(e) => Err(format!("Impossible to parse the bitstring: {:?}", e).to_string()),
+        }
+
+        // match (0..len_of_64_bits)
+        //     .map(|i| {
+        //         let lower_bound = str_bitstring.len().saturating_sub(64 * (i + 1));
+        //         let upper_bound = usize::min(lower_bound + 64, str_bitstring.len());
+        //         let substr = &str_bitstring[lower_bound..upper_bound];
+        //         u64::from_str_radix(substr, 2)
+        //     })
+        //     .collect()
+        // {
+        //     Ok(v) => Ok(Bitstring { bitstring: v }),
+        //     Err(e) => Err(format!("Impossible to parse: {:?}", e)),
+        // }
+
     }
 }
 
@@ -224,6 +247,14 @@ impl From<&Bitstring> for Vec<u8> {
             .iter()
             .flat_map(|elem| elem.to_be_bytes())
             .collect()
+    }
+}
+
+impl Default for Bitstring {
+    fn default() -> Self {
+        Self {
+            bitstring: vec![0; 1],
+        }
     }
 }
 
@@ -503,7 +534,7 @@ mod tests {
 
     #[test]
     /// Tests the parsing of bitstring from &[u8].
-    fn test_bitstring_from_slice_u8() {
+    fn test_bitstring_from_slice_u8_simple() {
         let raw = [0u8, 0, 0, 0, 0, 0, 0, 1];
         let res: Result<Bitstring> = raw.as_ref().try_into();
         assert!(res.is_ok());
@@ -567,5 +598,110 @@ mod tests {
         // Assuming that the deserialization works, if we get the same content
         // between bier_state and bier_state_after, it means that the serialization works.
         assert_eq!(bier_state, bier_state_after);
+    }
+
+    #[test]
+    /// Tests the bitstring from Vec<u64>.
+    fn test_bitstring_from_vec_u64() {
+        let valid_bitstring_length_u64 = [1, 2, 4, 8, 16, 32, 64];
+
+        for i in 0..100 {
+            let v: Vec<_> = (0..i).collect();
+            let bitstring = v.clone().try_into();
+            if valid_bitstring_length_u64.contains(&i) {
+                assert!(bitstring.is_ok());
+                let bitstring: Bitstring = bitstring.unwrap();
+                assert_eq!(bitstring.bitstring, v);
+            } else {
+                assert!(bitstring.is_err());
+                assert_eq!(bitstring.unwrap_err(), crate::Error::BitstringLength);
+            }
+        }
+    }
+
+    #[test]
+    /// Tests the bitstring from &[u8].
+    fn test_bitstring_from_slice_u8() {
+        let valid_bitstring_length_u64: Vec<_> = [1, 2, 4, 8, 16, 32, 64].iter().map(|i| i * 8).collect();
+
+        for i in 0..1000 {
+            let v: Vec<u8> = (0..i).map(|i| (i % 255) as u8).collect();
+            let bitstring: Result<Bitstring> = (&v[..]).try_into();
+            if valid_bitstring_length_u64.contains(&i) {
+                assert!(bitstring.is_ok());
+            } else {
+                println!("This is i={}", i);
+                assert!(bitstring.is_err());
+                assert_eq!(bitstring.unwrap_err(), crate::Error::BitstringLength);
+            }
+        }
+    }
+
+    #[test]
+    /// Tests the bitstring from str (FromStr trait).
+    /// For this test, every bitstring (up to 4098 characters) should be accepted
+    /// if they contain only 0's and 1's.
+    fn test_bitstring_from_str() {
+        let s = "1";
+        let bitstring = Bitstring::from_str(s);
+        assert!(bitstring.is_ok());
+        let bitstring = bitstring.unwrap();
+        assert_eq!(bitstring.bitstring, vec![1]);
+
+        let s = "1".repeat(64);
+        let bitstring = Bitstring::from_str(&s);
+        assert!(bitstring.is_ok());
+        let bitstring = bitstring.unwrap();
+        assert_eq!(bitstring.bitstring, vec![0xffffffffffffffff]);
+
+        let s = "1".repeat(65);
+        let bitstring = Bitstring::from_str(&s);
+        assert!(bitstring.is_ok());
+        let bitstring = bitstring.unwrap();
+        assert_eq!(bitstring.bitstring, vec![0xffffffffffffffff, 1]);
+        assert_eq!(bitstring.bitstring[0], 0xffffffffffffffff);
+        assert_eq!(bitstring.bitstring[1], 1);
+
+        let s = "1".repeat(128);
+        let bitstring = Bitstring::from_str(&s);
+        assert!(bitstring.is_ok());
+        let bitstring = bitstring.unwrap();
+        assert_eq!(bitstring.bitstring, vec![0xffffffffffffffff, 0xffffffffffffffff]);
+        assert_eq!(bitstring.bitstring[0], 0xffffffffffffffff);
+        assert_eq!(bitstring.bitstring[1], 0xffffffffffffffff);
+
+        let s = "1".repeat(4096);
+        let bitstring = Bitstring::from_str(&s);
+        assert!(bitstring.is_ok());
+        let bitstring = bitstring.unwrap();
+        assert_eq!(bitstring.bitstring, vec![0xffffffffffffffff; 64]);
+
+        let s = "1".repeat(4097);
+        let bitstring = Bitstring::from_str(&s);
+        assert!(bitstring.is_err());
+
+        let s = "1".repeat(6000);
+        let bitstring = Bitstring::from_str(&s);
+        assert!(bitstring.is_err());
+    }
+
+    #[test]
+    /// Tests the bitstring from str (FromStr trait).
+    /// For this test, every bitstring (up to 4098 characters) should be accepted
+    /// if they contain only 0's and 1's.
+    fn test_bitstring_from_str_value() {
+        let s = "1010001011";
+        let bitstring = Bitstring::from_str(s);
+        assert!(bitstring.is_ok());
+        let bitstring = bitstring.unwrap();
+        assert_eq!(bitstring.bitstring, vec![0b1010001011]);
+
+        let s = "1010001012";
+        let bitstring = Bitstring::from_str(s);
+        assert!(bitstring.is_err());
+
+        let s = "1010f01011";
+        let bitstring = Bitstring::from_str(s);
+        assert!(bitstring.is_err());
     }
 }

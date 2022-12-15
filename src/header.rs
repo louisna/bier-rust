@@ -1,4 +1,4 @@
-use crate::{Error, Result};
+use crate::{Error, Result, bier::Bitstring};
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -16,7 +16,7 @@ pub struct BierHeader {
     rsv: u8,
     proto: u8,
     bfr_id: u16,
-    bitstring: Vec<u64>,
+    bitstring: Bitstring,
 }
 
 pub const BIER_MINIMUM_HEADER_LENGTH: usize = 20;
@@ -52,7 +52,7 @@ impl BierHeader {
             rsv: get_rsv(slice),
             proto: get_proto(slice),
             bfr_id: get_bifr_id(slice),
-            bitstring: get_bitstring(slice),
+            bitstring: get_bitstring(slice)?,
         };
 
         Ok(header)
@@ -86,17 +86,17 @@ impl BierHeader {
         slice[8..12].copy_from_slice(&bytes);
 
         unsafe {
-            let bitstring: Vec<u64> = self.bitstring.iter().map(|item| item.to_be()).collect();
+            let bitstring: Vec<u64> = self.bitstring.bitstring.iter().map(|item| item.to_be()).collect();
             let p = bitstring.as_ptr() as *const u8;
-            let bitstring = std::slice::from_raw_parts(p, self.bitstring.len() * 8);
+            let bitstring = std::slice::from_raw_parts(p, self.bitstring.bitstring.len() * 8);
             slice[12..self.header_length()].copy_from_slice(bitstring);
         }
 
         Ok(())
     }
 
-    pub fn get_bitstring(&self) -> crate::bier::Bitstring {
-        self.bitstring.clone().into()
+    pub fn get_bitstring(&self) -> &Bitstring {
+        &self.bitstring
     }
 
     pub fn get_bift_id(&self) -> u32 {
@@ -104,20 +104,20 @@ impl BierHeader {
     }
 
     pub fn header_length(&self) -> usize {
-        BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.len() * 8
+        BIER_HEADER_WITHOUT_BITSTRING_LENGTH + self.bitstring.bitstring.len() * 8
     }
 
     pub fn from_recv_info(recv_info: &crate::api::RecvInfo) -> Result<Self> {
         let bitstring: crate::bier::Bitstring = recv_info.bitstring.try_into()?;
-        let bsl = match bitstring.bitstring.len() * 8 {
+        let bsl = match bitstring.bitstring.len() * 64 {
             8 => 1,
             16 => 2,
-            other => ((other as f64).log2() - 4f64) as usize,
+            other => ((other as f64).log2() - 5f64) as usize,
         };
 
         Ok(BierHeader {
             bift_id: recv_info.bift_id,
-            bitstring: bitstring.bitstring,
+            bitstring,
             proto: recv_info.proto as u8,
             bsl: bsl as u8,
             ..Default::default()
@@ -141,7 +141,7 @@ impl Default for BierHeader {
             rsv: Default::default(),
             proto: Default::default(),
             bfr_id: Default::default(),
-            bitstring: vec![0; 1],
+            bitstring: Bitstring::default(),
         }
     }
 }
@@ -198,15 +198,17 @@ fn get_bifr_id(slice: &[u8]) -> u16 {
     unsafe { crate::get_unchecked_be_u16(slice.as_ptr().add(10)) }
 }
 
-fn get_bitstring(slice: &[u8]) -> Vec<u64> {
-    slice[12..]
+fn get_bitstring(slice: &[u8]) -> Result<Bitstring> {
+    let vec = slice[12..]
         .chunks(8)
         .map(|chunk| u64::from_be_bytes(chunk.try_into().unwrap()))
-        .collect::<Vec<u64>>()
+        .collect::<Vec<u64>>();
+    vec.try_into()
 }
 
 #[cfg(test)]
 pub mod tests {
+
     use super::*;
 
     pub fn get_dummy_bier_header_slice() -> [u8; 20] {
@@ -244,8 +246,8 @@ pub mod tests {
         assert_eq!(bier_header.dscp, 4);
         assert_eq!(bier_header.proto, 4);
         assert_eq!(bier_header.bfr_id, 0x11);
-        assert_eq!(bier_header.bitstring.len(), 1);
-        assert_eq!(bier_header.bitstring[0], 0xffff);
+        assert_eq!(bier_header.bitstring.bitstring.len(), 1);
+        assert_eq!(bier_header.bitstring.bitstring[0], 0xffff);
     }
 
     #[test]
@@ -287,7 +289,75 @@ pub mod tests {
     }
 
     #[test]
+    /// The RecvInfo only specifies the BIFT-ID, the Proto, the BitString and the Payload.
     fn test_bier_header_from_recv_info() {
-        assert!(false);
+        let recv_info = crate::api::RecvInfo {
+            bift_id: 0x654,
+            proto: 0x1f,
+            bitstring: &[0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8],
+            payload: &[0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa],
+        };
+
+        let bier_header = BierHeader::from_recv_info(&recv_info);
+        assert!(bier_header.is_ok());
+        let bier_header = bier_header.unwrap();
+        
+        // Test the fields that should be parsed from the RecvInfo.
+        assert_eq!(bier_header.bift_id, 0x654);
+        assert_eq!(bier_header.proto, 0x1f);
+        assert_eq!(bier_header.bsl, 1);
+        assert_eq!(bier_header.bitstring.bitstring, vec![0x0102030405060708]);
+
+        // The remaining fields should be set to default value.
+        // We assume here that it is 0. If the Default implementation changes,
+        // we should stop using it, because we need 0 values in these fields.
+        assert_eq!(bier_header.tc, 0);
+        assert_eq!(bier_header.s, false);
+        assert_eq!(bier_header.ttl, 0);
+        assert_eq!(bier_header.nibble, 0);
+        assert_eq!(bier_header.ver, 0);
+        assert_eq!(bier_header.entropy, 0);
+        assert_eq!(bier_header.oam, 0);
+        assert_eq!(bier_header.dscp, 0);
+        assert_eq!(bier_header.rsv, 0);
+        assert_eq!(bier_header.bfr_id, 0);
+
+    }
+
+    #[test]
+    /// Test the RecvInfo with a longer bitstring.
+    fn test_bier_header_from_recv_info_long_bitstring() {
+        let recv_info = crate::api::RecvInfo {
+            bift_id: 0x654,
+            proto: 0x1f,
+            bitstring: &vec![0xf4u8; 512],
+            payload: &[0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa],
+        };
+
+        let bier_header = BierHeader::from_recv_info(&recv_info);
+        assert!(bier_header.is_ok());
+        let bier_header = bier_header.unwrap();
+
+        // Test the bitstring. It is the longest bitstring we could have.
+        assert_eq!(bier_header.bsl, 7);
+        assert_eq!(bier_header.bitstring.bitstring, vec![0xf4f4f4f4f4f4f4f4; 64]);
+
+        // Test the fields that should be parsed from the RecvInfo.
+        assert_eq!(bier_header.bift_id, 0x654);
+        assert_eq!(bier_header.proto, 0x1f);
+
+        // The remaining fields should be set to default value.
+        // We assume here that it is 0. If the Default implementation changes,
+        // we should stop using it, because we need 0 values in these fields.
+        assert_eq!(bier_header.tc, 0);
+        assert_eq!(bier_header.s, false);
+        assert_eq!(bier_header.ttl, 0);
+        assert_eq!(bier_header.nibble, 0);
+        assert_eq!(bier_header.ver, 0);
+        assert_eq!(bier_header.entropy, 0);
+        assert_eq!(bier_header.oam, 0);
+        assert_eq!(bier_header.dscp, 0);
+        assert_eq!(bier_header.rsv, 0);
+        assert_eq!(bier_header.bfr_id, 0);
     }
 }

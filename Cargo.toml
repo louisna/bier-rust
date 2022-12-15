@@ -14,3 +14,8 @@ env_logger = "0.9.0"
 serde_repr = "0.1.9"
 socket2 = { version = "0.4.7", features = ["all"] }
 mio = { version = "0.8.5", features = ["net", "os-poll", "os-ext"] }
+criterion = "0.4"
+
+[[bench]]
+name = "bier_processing"
+harness = false
